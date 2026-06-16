@@ -2,7 +2,7 @@
 // Spieldaten laufen über Firestore (eigener Offline-Cache); dieser SW cacht
 // nur die statischen App-Dateien, damit die Oberfläche offline lädt.
 // Bei jeder Änderung an den Dateien die VERSION erhöhen → alter Cache wird verworfen.
-const VERSION = 'v5';
+const VERSION = 'v6';
 const CACHE = `raufrunter-${VERSION}`;
 
 const SHELL = [
@@ -37,7 +37,8 @@ self.addEventListener('activate', (e) => {
 });
 
 // Nur same-origin GET behandeln (Firebase/gstatic läuft direkt übers Netz).
-// Strategie: stale-while-revalidate — schnell aus Cache, im Hintergrund aktualisieren.
+// Strategie: NETWORK-FIRST — online immer die frische Datei (damit Deploys
+// sofort ankommen), nur bei fehlender Verbindung aus dem Cache (Offline-Shell).
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
@@ -45,15 +46,20 @@ self.addEventListener('fetch', (e) => {
   if (url.origin !== self.location.origin) return;
 
   e.respondWith(
-    caches.open(CACHE).then(async (cache) => {
-      const cached = await cache.match(req);
-      const network = fetch(req)
-        .then((res) => {
-          if (res && res.status === 200) cache.put(req, res.clone());
-          return res;
-        })
-        .catch(() => cached);
-      return cached || network;
-    }),
+    fetch(req)
+      .then((res) => {
+        if (res && res.status === 200) {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(req, copy));
+        }
+        return res;
+      })
+      .catch(async () => {
+        const cached = await caches.match(req);
+        if (cached) return cached;
+        // Navigationsanfragen offline → App-Shell ausliefern.
+        if (req.mode === 'navigate') return caches.match('./index.html');
+        return Response.error();
+      }),
   );
 });

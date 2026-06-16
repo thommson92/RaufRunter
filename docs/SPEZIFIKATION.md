@@ -180,7 +180,7 @@ docs/SPEZIFIKATION.md   dieses Dokument
 | **M2** | Schreiber-UI: Spiel anlegen, Runden-Eingabe (Ansagen/Stiche), Tabelle, Sitzreihenfolge, „Farbe losen", Runden editieren, Spiel löschen | ✅ fertig |
 | **M3** | **Firestore-Adapter** (`src/store-firebase.js`): gleiche Schnittstelle wie `store.js`, Live-Listener via `onSnapshot`, Spiel-IDs cloudweit, Liste & Löschen; `app.js` auf async/live umgestellt; persistenter IndexedDB-Cache (offline-tauglich) | ✅ fertig |
 | **M4** | Zuschauer-View `#/view/<id>` jetzt geräteübergreifend live (gleiches `onSnapshot`-Abo, read-only) + Share-Button | ✅ fertig |
-| **M5** | PWA (Manifest, Service-Worker, Icons) + Deploy auf `main` → live unter https://thommson92.github.io/RaufRunter/ | ✅ fertig |
+| **M5** | PWA (Manifest, Service-Worker, Icons) + Deploy auf `main` → live unter https://thommson92.github.io/RaufRunter/. SW nutzt **network-first** (online immer frischer Code, Cache nur als Offline-Fallback) + **Auto-Reload bei Update** (wiederkehrende Nutzer laden einmal automatisch neu) — so erreichen Deploys die Geräte zuverlässig. | ✅ fertig |
 
 ### Status-Notiz (M3/M4 verifiziert)
 - Smoke-Test via Chrome-headless + DevTools-Protokoll: Startseite/`listGames` lädt,

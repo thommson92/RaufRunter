@@ -18,8 +18,18 @@
     <script type="module" src="./src/app.js"></script>
     <script>
       if ('serviceWorker' in navigator) {
+        // Gab es beim Laden schon einen aktiven SW? Dann ist ein späterer
+        // Controller-Wechsel ein UPDATE → einmal neu laden, damit frischer
+        // Code greift. Beim Erstbesuch (kein Controller) NICHT neu laden.
+        const hadController = !!navigator.serviceWorker.controller;
+        let reloaded = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (!hadController || reloaded) return;
+          reloaded = true;
+          location.reload();
+        });
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('./sw.js').catch(() => {});
+          navigator.serviceWorker.register('./sw.js').then((reg) => reg.update()).catch(() => {});
         });
       }
     </script>
