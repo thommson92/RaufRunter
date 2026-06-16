@@ -3,6 +3,7 @@
 // einzelnes Spiel abonniert das Dokument und rendert bei jeder Änderung neu.
 import { createGame } from './store.js';
 import { fb } from './store-firebase.js';
+import { randomName } from './names.js';
 import {
   standings,
   allowedBids,
@@ -161,17 +162,29 @@ async function renderHome() {
   `;
 }
 
+// Hält pro Spieler-Slot einen (möglichst eindeutigen) Vorschlagsnamen vor,
+// damit Platzhalter beim Re-Render stabil bleiben.
+function ensureSuggestions(d) {
+  d.suggestions = d.suggestions || [];
+  while (d.suggestions.length < d.players.length) {
+    d.suggestions.push(randomName(d.suggestions));
+  }
+  d.suggestions.length = d.players.length;
+}
+
 function renderNew() {
   if (!ui.draft) {
     ui.draft = { name: '', maxCards: 7, players: ['', ''], restrictLastBid: true, upOnly: false };
   }
   const d = ui.draft;
+  ensureSuggestions(d);
   const playerInputs = d.players
     .map(
       (name, i) => `
       <div class="player-row">
         <span class="seat">${i + 1}</span>
-        <input data-pname="${i}" value="${esc(name)}" placeholder="Spieler ${i + 1}" />
+        <input data-pname="${i}" value="${esc(name)}" placeholder="z.B. ${esc(d.suggestions[i])}" />
+        <button class="icon-btn btn-ghost" data-action="suggest-name" data-i="${i}" title="Lustigen Namen einsetzen">🎲</button>
         <button class="icon-btn btn-ghost" data-action="rm-player" data-i="${i}" ${
         d.players.length <= 2 ? 'disabled' : ''
       }>✕</button>
@@ -203,7 +216,11 @@ function renderNew() {
       <small class="muted">Standardregel an: Die Summe aller Ansagen darf nicht der Kartenzahl entsprechen. Aus = beliebige Ansagen erlaubt.</small>
     </div>
     <div class="card">
-      <div class="row spread"><h2>Spieler & Sitzreihenfolge</h2></div>
+      <div class="row spread">
+        <h2 style="margin:0">Spieler & Sitzreihenfolge</h2>
+        <button class="btn-ghost btn-sm" data-action="fill-names" style="min-width:auto">🎲 Alle würfeln</button>
+      </div>
+      <p class="muted" style="margin:6px 0 4px;font-size:0.8rem">Tipp: 🎲 setzt einen lustigen Namen ein – oder eigene eintippen.</p>
       ${playerInputs}
       <button class="btn-ghost btn-sm" data-action="add-player" style="margin-top:10px">+ Spieler</button>
     </div>
@@ -532,8 +549,26 @@ async function onClick(e) {
     case 'rm-player':
       readDraftFromInputs();
       ui.draft.players.splice(+i, 1);
+      if (ui.draft.suggestions) ui.draft.suggestions.splice(+i, 1);
       renderNew();
       break;
+    case 'suggest-name': {
+      readDraftFromInputs();
+      const used = ui.draft.players.filter(Boolean);
+      ui.draft.players[+i] = randomName(used);
+      renderNew();
+      break;
+    }
+    case 'fill-names': {
+      readDraftFromInputs();
+      ui.draft.players.forEach((n, idx) => {
+        if (!n.trim()) {
+          ui.draft.players[idx] = randomName(ui.draft.players.filter(Boolean));
+        }
+      });
+      renderNew();
+      break;
+    }
     case 'start': {
       readDraftFromInputs();
       const names = ui.draft.players.map((n) => n.trim()).filter(Boolean);

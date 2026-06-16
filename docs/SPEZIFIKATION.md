@@ -83,6 +83,9 @@ Smartphone nutzen. → **Mobile-first.**
 - Spiele **löschbar**.
 - Sprache: **Deutsch**.
 - PWA („Zum Startbildschirm"), lokale Eingabe kurz offline möglich.
+- **Lustige Namensvorschläge** beim Anlegen: alliterierende Namen (Vor-/Nachname
+  gleicher Anfangsbuchstabe, z. B. „Daniel Düsentrieb") als Platzhalter, plus 🎲 pro
+  Zeile und „Alle würfeln". Quelle: `src/names.js`. Reine UI-Hilfe, kein DB-Einfluss.
 
 ---
 
