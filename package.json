@@ -1,0 +1,11 @@
+{
+  "name": "rauf-runter",
+  "version": "0.1.0",
+  "description": "Punktezähler für das Kartenspiel \"10 rauf, 10 runter\"",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "serve": "python3 -m http.server 5173"
+  }
+}
