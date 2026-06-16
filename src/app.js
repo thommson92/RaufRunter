@@ -1,5 +1,8 @@
 // app.js — UI, Routing, Event-Handling (Vanilla, kein Build-Step).
-import { store, createGame } from './store.js';
+// Daten kommen live aus Firestore (store-firebase.js): jede Ansicht für ein
+// einzelnes Spiel abonniert das Dokument und rendert bei jeder Änderung neu.
+import { createGame } from './store.js';
+import { fb } from './store-firebase.js';
 import {
   standings,
   allowedBids,
@@ -15,6 +18,11 @@ const ui = {
   draft: null,        // Entwurf im "Neues Spiel"-Formular
   activeRound: null,  // welche Runde im Eingabe-Panel offen ist
 };
+
+// Aktuell abonniertes Spiel (Live-Cache aus Firestore).
+//   game === undefined  -> lädt noch
+//   game === null        -> nicht gefunden
+const current = { id: null, game: undefined, unsub: null };
 
 // ---------- Helpers ----------
 const esc = (s) =>
@@ -37,22 +45,92 @@ function navigate(hash) {
   else location.hash = hash;
 }
 
+function currentRoute() {
+  const parts = location.hash.replace(/^#/, '').split('/').filter(Boolean);
+  return { view: parts[0] || 'home', id: parts[1] };
+}
+
+function saveCurrent() {
+  if (!current.game) return;
+  // Optimistisch sofort rendern, im Hintergrund nach Firestore schreiben.
+  // Der onSnapshot-Listener gleicht danach mit dem Server-Stand ab.
+  renderActiveView();
+  fb.saveGame(current.game).catch((e) => {
+    console.error('Speichern fehlgeschlagen:', e);
+    alert('Speichern fehlgeschlagen – bist du online? Änderung wird nachgeholt, sobald wieder Verbindung besteht.');
+  });
+}
+
+// ---------- Subscription ----------
+function ensureSubscribed(id) {
+  if (current.id === id && current.unsub) return;
+  clearSubscription();
+  current.id = id;
+  current.game = undefined;
+  ui.activeRound = null;
+  current.unsub = fb.subscribeGame(id, (g) => {
+    current.game = g;
+    if (currentRoute().id === id) renderActiveView();
+  });
+}
+
+function clearSubscription() {
+  if (current.unsub) current.unsub();
+  current.unsub = null;
+  current.id = null;
+  current.game = undefined;
+}
+
 // ---------- Router ----------
 function route() {
-  const hash = location.hash.replace(/^#/, '') || '/';
-  const parts = hash.split('/').filter(Boolean); // z.B. ['game','abc']
+  const { view, id } = currentRoute();
+  if (['game', 'players', 'view'].includes(view) && id) ensureSubscribed(id);
+  else clearSubscription();
+  renderActiveView();
+}
 
-  if (parts.length === 0) return renderHome();
-  if (parts[0] === 'new') return renderNew();
-  if (parts[0] === 'game' && parts[1]) return renderScorer(parts[1]);
-  if (parts[0] === 'players' && parts[1]) return renderPlayers(parts[1]);
-  if (parts[0] === 'view' && parts[1]) return renderViewer(parts[1]);
-  return renderHome();
+function renderActiveView() {
+  const { view } = currentRoute();
+  switch (view) {
+    case 'new':
+      return renderNew();
+    case 'game':
+      return renderScorer();
+    case 'players':
+      return renderPlayers();
+    case 'view':
+      return renderViewer();
+    default:
+      return renderHome();
+  }
+}
+
+function renderLoading(text = 'Lädt …') {
+  appEl.innerHTML = `
+    <div class="topbar"><button class="icon-btn btn-ghost" data-action="home">‹</button><h1>Rauf Runter</h1></div>
+    <div class="empty">${esc(text)}</div>`;
+}
+
+function renderNotFound() {
+  appEl.innerHTML = `
+    <div class="topbar"><button class="icon-btn btn-ghost" data-action="home">‹</button><h1>Rauf Runter</h1></div>
+    <div class="empty">Spiel nicht gefunden.<br/><small>Vielleicht wurde es gelöscht oder der Link stimmt nicht.</small></div>`;
 }
 
 // ---------- Views ----------
-function renderHome() {
-  const games = store.listGames();
+async function renderHome() {
+  appEl.innerHTML = `
+    <div class="topbar"><h1>🃏 Rauf Runter</h1></div>
+    <div class="empty">Lade Spiele …</div>`;
+  let games;
+  try {
+    games = await fb.listGames();
+  } catch (e) {
+    console.error(e);
+    games = [];
+  }
+  if (currentRoute().view !== 'home') return; // inzwischen weggenavigiert
+
   const items = games.length
     ? games
         .map((g) => {
@@ -122,9 +200,10 @@ function renderNew() {
   `;
 }
 
-function renderPlayers(id) {
-  const game = store.getGame(id);
-  if (!game) return renderHome();
+function renderPlayers() {
+  const game = current.game;
+  if (game === undefined) return renderLoading('Lade Spiel …');
+  if (game === null) return renderNotFound();
   const seated = seatSorted(game);
   const rows = seated
     .map(
@@ -144,14 +223,14 @@ function renderPlayers(id) {
 
   appEl.innerHTML = `
     <div class="topbar">
-      <button class="icon-btn btn-ghost" data-action="open" data-id="${id}">‹</button>
+      <button class="icon-btn btn-ghost" data-action="open" data-id="${game.id}">‹</button>
       <h1>Spieler</h1>
     </div>
     <div class="card">
       <p class="muted" style="margin-top:0">Reihenfolge per ▲▼ ändern, Namen direkt bearbeiten. Punkte bleiben erhalten.</p>
       ${rows}
     </div>
-    <button class="btn-primary" data-action="open" data-id="${id}" style="width:100%">Fertig</button>
+    <button class="btn-primary" data-action="open" data-id="${game.id}" style="width:100%">Fertig</button>
   `;
 }
 
@@ -282,7 +361,7 @@ function roundsHistory(game) {
     </div>`;
 }
 
-function standingsTable(game, { editable } = {}) {
+function standingsTable(game) {
   const { byPlayer, ranking } = standings(game);
   const seated = seatSorted(game);
   const doneRounds = game.rounds.filter((r) => r.done);
@@ -325,9 +404,10 @@ function standingsTable(game, { editable } = {}) {
     </div>`;
 }
 
-function renderScorer(id) {
-  const game = store.getGame(id);
-  if (!game) return renderHome();
+function renderScorer() {
+  const game = current.game;
+  if (game === undefined) return renderLoading('Lade Spiel …');
+  if (game === null) return renderNotFound();
 
   // aktive Runde bestimmen (erste nicht fertige, sonst letzte)
   if (ui.activeRound == null || !game.rounds[ui.activeRound]) {
@@ -339,28 +419,26 @@ function renderScorer(id) {
     <div class="topbar">
       <button class="icon-btn btn-ghost" data-action="home">‹</button>
       <h1>${esc(game.name)}</h1>
-      <button class="icon-btn btn-ghost" data-action="players" data-id="${id}" title="Spieler">👥</button>
-      <button class="icon-btn btn-ghost" data-action="share" data-id="${id}" title="Teilen">🔗</button>
+      <button class="icon-btn btn-ghost" data-action="players" data-id="${game.id}" title="Spieler">👥</button>
+      <button class="icon-btn btn-ghost" data-action="share" data-id="${game.id}" title="Teilen">🔗</button>
     </div>
     ${entryPanel(game)}
     ${roundsHistory(game)}
     ${standingsTable(game)}
     <div class="card">
       <div class="btn-row">
-        <button class="btn-ghost" data-action="view" data-id="${id}">👁 Zuschauer-Ansicht</button>
-        <button class="btn-danger" data-action="delete" data-id="${id}">Spiel löschen</button>
+        <button class="btn-ghost" data-action="view" data-id="${game.id}">👁 Zuschauer-Ansicht</button>
+        <button class="btn-danger" data-action="delete" data-id="${game.id}">Spiel löschen</button>
       </div>
     </div>
   `;
 }
 
-function renderViewer(id) {
-  const game = store.getGame(id);
-  if (!game) {
-    appEl.innerHTML = `<div class="empty">Spiel nicht gefunden.<br/>
-      <small>Read-only-Links funktionieren erst mit der Cloud-Anbindung (M3) geräteübergreifend.</small></div>`;
-    return;
-  }
+function renderViewer() {
+  const game = current.game;
+  if (game === undefined) return renderLoading('Lade Live-Tabelle …');
+  if (game === null) return renderNotFound();
+
   const done = game.rounds.filter((r) => r.done).length;
   appEl.innerHTML = `
     <div class="topbar">
@@ -400,11 +478,12 @@ async function shareGame(id) {
   }
 }
 
-function onClick(e) {
+async function onClick(e) {
   const t = e.target.closest('[data-action]');
   if (!t) return;
   const { action, id, i, pid, v } = t.dataset;
   const gid = id;
+  const game = current.game;
 
   switch (action) {
     case 'home':
@@ -443,86 +522,86 @@ function onClick(e) {
       readDraftFromInputs();
       const names = ui.draft.players.map((n) => n.trim()).filter(Boolean);
       if (names.length < 2) return alert('Bitte mindestens 2 Spieler eintragen.');
-      const game = createGame({
+      const newGame = createGame({
         name: ui.draft.name,
         maxCards: ui.draft.maxCards,
         playerNames: names,
       });
-      store.saveGame(game);
+      try {
+        await fb.saveGame(newGame);
+      } catch (err) {
+        console.error(err);
+        return alert('Spiel konnte nicht angelegt werden – bist du online?');
+      }
       ui.draft = null;
       ui.activeRound = null;
-      navigate('/game/' + game.id);
+      navigate('/game/' + newGame.id);
       break;
     }
 
     case 'seat-up':
     case 'seat-down': {
-      const game = store.getGame(currentGameId());
+      if (!game) break;
       const seated = seatSorted(game);
       const idx = seated.findIndex((p) => p.id === pid);
       const swap = action === 'seat-up' ? idx - 1 : idx + 1;
       if (swap < 0 || swap >= seated.length) break;
-      const a = seated[idx];
-      const b = seated[swap];
-      const tmp = a.seatOrder;
-      a.seatOrder = b.seatOrder;
-      b.seatOrder = tmp;
-      store.saveGame(game);
-      renderPlayers(game.id);
+      const tmp = seated[idx].seatOrder;
+      seated[idx].seatOrder = seated[swap].seatOrder;
+      seated[swap].seatOrder = tmp;
+      saveCurrent();
       break;
     }
 
     case 'set-bid':
     case 'set-trick': {
-      const game = store.getGame(currentGameId());
+      if (!game) break;
       const round = game.rounds[ui.activeRound];
       const map = action === 'set-bid' ? round.bids : round.tricks;
       const val = +v;
       if (map[pid] === val) delete map[pid]; // nochmal tippen = abwählen
       else map[pid] = val;
-      // Wenn eine Ansage geändert wird, könnte die verbotene Regel andere ungültig machen — Stiche bleiben.
-      store.saveGame(game);
-      renderScorer(game.id);
+      saveCurrent();
       break;
     }
 
     case 'finish-round': {
-      const game = store.getGame(currentGameId());
-      const round = game.rounds[ui.activeRound];
-      round.done = true;
-      store.saveGame(game);
-      // zur nächsten offenen Runde springen
+      if (!game) break;
+      game.rounds[ui.activeRound].done = true;
       const next = game.rounds.findIndex((r) => !r.done);
       ui.activeRound = next === -1 ? game.rounds.length - 1 : next;
-      renderScorer(game.id);
+      saveCurrent();
       break;
     }
 
     case 'edit-round':
       ui.activeRound = +i;
-      renderScorer(currentGameId());
+      renderActiveView();
       window.scrollTo({ top: 0, behavior: 'smooth' });
       break;
 
     case 'lose-trump': {
-      const game = store.getGame(currentGameId());
+      if (!game) break;
       game.rounds[ui.activeRound].trump = randomTrump();
-      store.saveGame(game);
-      renderScorer(game.id);
+      saveCurrent();
       break;
     }
     case 'clear-trump': {
-      const game = store.getGame(currentGameId());
+      if (!game) break;
       delete game.rounds[ui.activeRound].trump;
-      store.saveGame(game);
-      renderScorer(game.id);
+      saveCurrent();
       break;
     }
 
     case 'delete': {
-      const game = store.getGame(gid);
+      if (!game) break;
       if (confirm(`„${game.name}" wirklich löschen?`)) {
-        store.deleteGame(gid);
+        try {
+          await fb.deleteGame(gid);
+        } catch (err) {
+          console.error(err);
+          return alert('Löschen fehlgeschlagen – bist du online?');
+        }
         ui.activeRound = null;
         navigate('/');
       }
@@ -531,21 +610,16 @@ function onClick(e) {
   }
 }
 
-// Spiel-ID aus dem aktuellen Hash (für Aktionen ohne data-id)
-function currentGameId() {
-  const parts = location.hash.replace(/^#/, '').split('/').filter(Boolean);
-  return parts[1];
-}
-
+// Namen in der Spieler-Bearbeitung — gebündelt speichern (Tippen erzeugt sonst viele Writes).
+let nameSaveTimer = null;
 function onInput(e) {
-  // Namen in der Spieler-Bearbeitung sofort speichern
   const nameEdit = e.target.closest('[data-edit-name]');
-  if (nameEdit) {
-    const game = store.getGame(currentGameId());
-    const p = game.players.find((x) => x.id === nameEdit.dataset.editName);
+  if (nameEdit && current.game) {
+    const p = current.game.players.find((x) => x.id === nameEdit.dataset.editName);
     if (p) {
       p.name = e.target.value;
-      store.saveGame(game);
+      clearTimeout(nameSaveTimer);
+      nameSaveTimer = setTimeout(() => fb.saveGame(current.game).catch(console.error), 400);
     }
   }
 }

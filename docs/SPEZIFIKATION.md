@@ -168,16 +168,23 @@ docs/SPEZIFIKATION.md   dieses Dokument
 | **M0** | Projektstruktur, `package.json`, GitHub-Pages-Setup | ✅ fertig |
 | **M1** | Spiel-Engine + Unit-Tests (12 Tests grün) | ✅ fertig |
 | **M2** | Schreiber-UI: Spiel anlegen, Runden-Eingabe (Ansagen/Stiche), Tabelle, Sitzreihenfolge, „Farbe losen", Runden editieren, Spiel löschen | ✅ fertig |
-| **M3** | **Firebase-Adapter**: `store`-Interface gegen Firestore/RTDB, echte Live-Listener, Spiel-IDs cloudweit, Liste & Löschen | ⏳ offen |
-| **M4** | Zuschauer-View geräteübergreifend live (Grundgerüst `#/view/<id>` steht; braucht M3 für Cross-Device) + Share-Button (vorhanden) | 🟡 teilweise |
-| **M5** | Politur, PWA-Manifest/Service-Worker, GitHub-Pages-Deploy, Test mit echtem Link auf 2. Gerät | ⏳ offen |
+| **M3** | **Firestore-Adapter** (`src/store-firebase.js`): gleiche Schnittstelle wie `store.js`, Live-Listener via `onSnapshot`, Spiel-IDs cloudweit, Liste & Löschen; `app.js` auf async/live umgestellt; persistenter IndexedDB-Cache (offline-tauglich) | ✅ fertig |
+| **M4** | Zuschauer-View `#/view/<id>` jetzt geräteübergreifend live (gleiches `onSnapshot`-Abo, read-only) + Share-Button | ✅ fertig |
+| **M5** | Politur, PWA-Manifest/Service-Worker, GitHub-Pages-Deploy (`main`), Test mit echtem Link auf 2. Gerät | ⏳ offen |
 
-### Hinweise für die Weiterarbeit (M3)
-- Firebase-Config kommt in eine separate Datei (z. B. `src/firebase-config.js`), die **nicht**
-  geheim sein muss (Web-API-Keys sind öffentlich; Schutz über Firestore-Security-Rules).
-- `store.subscribe(id, cb)` mit `onSnapshot` implementieren → Schreiber und Zuschauer
-  rendern bei jeder Remote-Änderung neu.
-- Security-Rules: Lesen offen (oder per Game-ID), Schreiben ggf. offen lassen (kein Schutz
-  gefordert) — bewusst dokumentieren.
-- Empfehlung: local-first beibehalten und Firebase als Sync-Schicht darüberlegen
-  (offline-tauglich), nicht ersetzen.
+### Status-Notiz (M3/M4 verifiziert)
+- Smoke-Test via Chrome-headless + DevTools-Protokoll: Startseite/`listGames` lädt,
+  Spiel anlegen schreibt nach Firestore, Schreiber-Ansicht rendert live, Ansage-Pille
+  speichert — **keine** Konsolen-/Firestore-Fehler. Test-Spiel danach wieder gelöscht.
+- Architektur umgesetzt wie geplant: `store-firebase.js` als Sync-Schicht; Firestores
+  eigener `persistentLocalCache` übernimmt local-first/offline (Browser-Schließen &
+  kurze Offline-Phasen unkritisch, Writes werden nachgeholt).
+- `src/store.js` (localStorage) bleibt als Referenz/Fallback erhalten, wird von der App
+  aber nicht mehr genutzt (außer `createGame`, reine Factory).
+
+### Offen für M5
+- PWA-Manifest + Service-Worker („Zum Startbildschirm", App-Icon).
+- Deploy auf `main` für GitHub Pages; danach echter Cross-Device-Test (Schreiber-Handy +
+  Zuschauer-Handy über den geteilten `#/view/<id>`-Link).
+- Optional: Schreibvorgänge beim Pillen-Tippen leicht bündeln (jeder Tap = 1 Firestore-Write;
+  im Free-Tier unkritisch, aber bündelbar).
