@@ -239,10 +239,10 @@ function renderPlayers() {
       <div class="player-row">
         <span class="seat">${i + 1}</span>
         <input data-edit-name="${p.id}" value="${esc(p.name)}" />
-        <button class="icon-btn btn-ghost" data-action="seat-up" data-id="${p.id}" ${
+        <button class="icon-btn btn-ghost" data-action="seat-up" data-pid="${p.id}" ${
         i === 0 ? 'disabled' : ''
       }>▲</button>
-        <button class="icon-btn btn-ghost" data-action="seat-down" data-id="${p.id}" ${
+        <button class="icon-btn btn-ghost" data-action="seat-down" data-pid="${p.id}" ${
         i === seated.length - 1 ? 'disabled' : ''
       }>▼</button>
       </div>`,
@@ -597,6 +597,7 @@ async function onClick(e) {
       if (!game) break;
       const seated = seatSorted(game);
       const idx = seated.findIndex((p) => p.id === pid);
+      if (idx < 0) break;
       const swap = action === 'seat-up' ? idx - 1 : idx + 1;
       if (swap < 0 || swap >= seated.length) break;
       const tmp = seated[idx].seatOrder;
