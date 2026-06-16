@@ -28,14 +28,22 @@ function uid() {
  * @param {boolean} [restrictLastBid=true] Wenn true gilt die Standardregel:
  *   die Summe aller Ansagen darf nicht der Kartenzahl entsprechen (letzter
  *   Spieler eingeschränkt). Wenn false darf die Ansage-Summe aufgehen.
+ * @param {boolean} [upOnly=false] Wenn true wird nur 1 → max gespielt,
+ *   sonst 1 → max → 1 (rauf und runter).
  */
-export function createGame({ name, maxCards, playerNames, restrictLastBid = true }) {
+export function createGame({
+  name,
+  maxCards,
+  playerNames,
+  restrictLastBid = true,
+  upOnly = false,
+}) {
   const players = playerNames.map((n, i) => ({
     id: uid(),
     name: n.trim(),
     seatOrder: i,
   }));
-  const counts = roundCardCounts(maxCards);
+  const counts = roundCardCounts(maxCards, upOnly);
   const rounds = counts.map((cardCount, index) => ({
     index,
     cardCount,
@@ -47,6 +55,7 @@ export function createGame({ name, maxCards, playerNames, restrictLastBid = true
     id: uid(),
     name: name.trim() || 'Spiel',
     maxCards,
+    upOnly,
     restrictLastBid,
     players,
     rounds,

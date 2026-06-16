@@ -18,6 +18,17 @@ test('roundCardCounts: 1 → max → 1, Höhepunkt einmal', () => {
   assert.deepEqual(roundCardCounts(10), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]);
 });
 
+test('roundCardCounts: upOnly ⇒ nur 1 → max', () => {
+  assert.deepEqual(roundCardCounts(3, true), [1, 2, 3]);
+  assert.deepEqual(roundCardCounts(1, true), [1]);
+  assert.deepEqual(roundCardCounts(5, true), [1, 2, 3, 4, 5]);
+});
+
+test('totalRounds: upOnly = max', () => {
+  assert.equal(totalRounds(7, true), 7);
+  assert.equal(totalRounds(7, false), 13);
+});
+
 test('roundCardCounts: ungültige Eingaben ⇒ leer', () => {
   assert.deepEqual(roundCardCounts(0), []);
   assert.deepEqual(roundCardCounts(-2), []);

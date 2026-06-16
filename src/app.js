@@ -163,7 +163,7 @@ async function renderHome() {
 
 function renderNew() {
   if (!ui.draft) {
-    ui.draft = { name: '', maxCards: 7, players: ['', ''], restrictLastBid: true };
+    ui.draft = { name: '', maxCards: 7, players: ['', ''], restrictLastBid: true, upOnly: false };
   }
   const d = ui.draft;
   const playerInputs = d.players
@@ -189,7 +189,13 @@ function renderNew() {
       <input data-field="name" value="${esc(d.name)}" placeholder="z.B. Spieleabend" />
       <label>Bis wie viele Karten? (Höhepunkt)</label>
       <input data-field="maxCards" type="number" inputmode="numeric" min="1" max="20" value="${d.maxCards}" />
-      <small class="muted">Runden: 1 → ${d.maxCards} → 1 = ${totalRounds(d.maxCards)} Runden</small>
+      <label class="check-row">
+        <input type="checkbox" data-field="playDown" ${d.upOnly ? '' : 'checked'} />
+        <span>Nach dem Höhepunkt wieder herunterspielen</span>
+      </label>
+      <small class="muted">Runden: ${
+        d.upOnly ? `1 → ${d.maxCards}` : `1 → ${d.maxCards} → 1`
+      } = ${totalRounds(d.maxCards, d.upOnly)} Runden</small>
       <label class="check-row">
         <input type="checkbox" data-field="restrictLastBid" ${d.restrictLastBid ? 'checked' : ''} />
         <span>Letzter Spieler darf die Ansage nicht aufgehen lassen</span>
@@ -467,6 +473,8 @@ function readDraftFromInputs() {
   if (max) ui.draft.maxCards = Math.max(1, Math.min(20, parseInt(max.value, 10) || 1));
   const restrict = appEl.querySelector('[data-field="restrictLastBid"]');
   if (restrict) ui.draft.restrictLastBid = restrict.checked;
+  const playDown = appEl.querySelector('[data-field="playDown"]');
+  if (playDown) ui.draft.upOnly = !playDown.checked;
   appEl.querySelectorAll('[data-pname]').forEach((inp) => {
     ui.draft.players[+inp.dataset.pname] = inp.value;
   });
@@ -535,6 +543,7 @@ async function onClick(e) {
         maxCards: ui.draft.maxCards,
         playerNames: names,
         restrictLastBid: ui.draft.restrictLastBid !== false,
+        upOnly: ui.draft.upOnly === true,
       });
       try {
         await fb.saveGame(newGame);
@@ -633,8 +642,19 @@ function onInput(e) {
   }
 }
 
+// Änderungen im "Neues Spiel"-Formular (Kartenzahl/Schalter) → neu rendern,
+// damit Rundenfolge und -anzahl sofort stimmen.
+function onChange(e) {
+  if (currentRoute().view !== 'new') return;
+  if (e.target.closest('[data-field="maxCards"], [data-field="playDown"], [data-field="restrictLastBid"]')) {
+    readDraftFromInputs();
+    renderNew();
+  }
+}
+
 // ---------- Bootstrap ----------
 appEl.addEventListener('click', onClick);
 appEl.addEventListener('input', onInput);
+appEl.addEventListener('change', onChange);
 window.addEventListener('hashchange', route);
 route();

@@ -4,24 +4,28 @@
 export const TRUMP_COLORS = ['Rot', 'Blau', 'Grün', 'Gelb'];
 
 /**
- * Kartenzahlen pro Runde: 1 → max → 1, Höhepunkt einmal.
- * max=3 ⇒ [1,2,3,2,1]; max=1 ⇒ [1].
+ * Kartenzahlen pro Runde.
+ * Standard (rauf & runter): 1 → max → 1, Höhepunkt einmal — max=3 ⇒ [1,2,3,2,1].
+ * Nur rauf (upOnly):        1 → max          — max=3 ⇒ [1,2,3].
+ * max=1 ⇒ [1] in beiden Fällen.
  * @param {number} maxCards
+ * @param {boolean} [upOnly=false] nur aufsteigend spielen
  * @returns {number[]}
  */
-export function roundCardCounts(maxCards) {
+export function roundCardCounts(maxCards, upOnly = false) {
   const max = Math.floor(maxCards);
   if (!Number.isFinite(max) || max < 1) return [];
   const up = [];
   for (let i = 1; i <= max; i++) up.push(i);
+  if (upOnly) return up;
   const down = [];
   for (let i = max - 1; i >= 1; i--) down.push(i);
   return up.concat(down);
 }
 
 /** Gesamtzahl der Runden für ein konfiguriertes Maximum. */
-export function totalRounds(maxCards) {
-  return roundCardCounts(maxCards).length;
+export function totalRounds(maxCards, upOnly = false) {
+  return roundCardCounts(maxCards, upOnly).length;
 }
 
 /**

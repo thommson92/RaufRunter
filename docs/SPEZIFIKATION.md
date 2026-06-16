@@ -27,6 +27,9 @@ Smartphone nutzen. → **Mobile-first.**
 - **Rundenkurve:** Die Kartenanzahl pro Runde geht **1 → max → 1**, der Höhepunkt wird
   **einmal** gespielt. Das Maximum ist konfigurierbar. Bei `max = N` ergibt das `2N − 1`
   Runden (z. B. max 10 ⇒ 19 Runden, Folge `1,2,…,10,…,2,1`).
+  **Pro Spiel umschaltbar** über das Feld `upOnly` (beim Anlegen wählbar, Standard
+  **rauf & runter**). Ist `upOnly` aktiv, wird **nur 1 → max** gespielt (`N` Runden,
+  Folge `1,2,…,N`). Fehlendes Feld ⇒ rauf & runter (abwärtskompatibel).
 - **Ablauf je Runde:** Erst sagen alle Spieler in **Sitzreihenfolge** ihre Stiche an,
   dann wird gespielt, danach werden die **tatsächlich gemachten Stiche** eingetragen.
 - **Verbotene Ansage (letzter Spieler):** Die **Summe aller Ansagen darf nicht der
@@ -127,6 +130,7 @@ Smartphone nutzen. → **Mobile-first.**
 ```jsonc
 games/<gameId> = {
   id, name, maxCards, currentRound,
+  upOnly,                             // bool, default false (nur 1→max statt 1→max→1?)
   restrictLastBid,                    // bool, default true (verbotene Ansage aktiv?)
   createdAt, updatedAt,
   players: [ { id, name, seatOrder } ],
