@@ -10,7 +10,10 @@ Mobile-first, läuft als statische Seite auf **GitHub Pages**.
 - **Verbotene Ansage** des letzten Spielers wird erzwungen.
 - Punktestand-Tabelle, Runden nachträglich editierbar, Sitzreihenfolge änderbar.
 - Optionaler **„Farbe losen"-Knopf** (Rot/Blau/Grün/Gelb).
-- Zuschauer-Link (read-only). *Cross-Device-Live kommt mit der Firebase-Anbindung — siehe Roadmap.*
+- Zuschauer-Link (read-only), **geräteübergreifend live** über Firestore.
+- Installierbar als **PWA** („Zum Startbildschirm"), Oberfläche offline-fähig.
+
+**Live:** <https://thommson92.github.io/RaufRunter/>
 
 ## Lokal starten
 Kein Build nötig. Einen statischen Server im Projektordner starten:
@@ -32,5 +35,5 @@ Vollständige Spezifikation, Entscheidungs-Log, Tech-Stack und Implementierungsp
 **[docs/SPEZIFIKATION.md](docs/SPEZIFIKATION.md)**.
 
 ## Stand
-M0–M2 fertig (Engine, Schreiber-UI, lokale Persistenz). Offen: M3 Firebase-Sync,
-M4 Live-Zuschauer geräteübergreifend, M5 Politur/PWA/Deploy.
+M0–M5 fertig: Engine, Schreiber-UI, Firestore-Live-Sync, Zuschauer-View, PWA und
+Deploy. App ist live. Mögliche Nächstes: echter Zwei-Geräte-Test, Feinschliff.
