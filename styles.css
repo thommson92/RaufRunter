@@ -89,6 +89,11 @@ input, select {
   min-height: 44px;
 }
 label { display: block; font-size: 0.85rem; color: var(--muted); margin: 12px 0 6px; }
+.check-row { display: flex; align-items: center; gap: 10px; margin: 16px 0 4px; cursor: pointer; }
+.check-row input[type="checkbox"] {
+  width: 22px; height: 22px; min-height: 0; flex: 0 0 auto; accent-color: var(--primary);
+}
+.check-row span { font-size: 0.95rem; color: var(--text); }
 
 .muted { color: var(--muted); }
 .center { text-align: center; }

@@ -64,6 +64,13 @@ test('allowedBids: nicht-letzter Spieler hat alle Werte', () => {
   assert.deepEqual(r, [0, 1, 2, 3]);
 });
 
+test('allowedBids: Regel aus (isLastBidder=false) ⇒ letzter darf aufgehen lassen', () => {
+  // Spiel mit restrictLastBid=false: die App übergibt isLastBidder=false,
+  // also darf auch der letzte Spieler den "aufgehenden" Wert (hier 2) wählen.
+  const r = allowedBids({ cardCount: 3, isLastBidder: false, sumOtherBids: 1 });
+  assert.ok(r.includes(2));
+});
+
 test('standings: Summen, Verlauf und geteilte Ränge', () => {
   const game = {
     players: [

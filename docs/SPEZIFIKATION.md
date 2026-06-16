@@ -32,7 +32,9 @@ Smartphone nutzen. → **Mobile-first.**
 - **Verbotene Ansage (letzter Spieler):** Die **Summe aller Ansagen darf nicht der
   Kartenzahl der Runde entsprechen.** Nur der **letzte** Ansagende ist eingeschränkt; die
   App sperrt genau den Wert `Kartenzahl − Summe der übrigen Ansagen` (sofern im Bereich
-  `0..Kartenzahl`).
+  `0..Kartenzahl`). **Pro Spiel umschaltbar** über das Feld `restrictLastBid` (beim
+  Anlegen wählbar, Standard **an**). Ist es aus, darf auch der letzte Spieler beliebig
+  ansagen (die Summe darf aufgehen). Fehlendes Feld ⇒ Regel an (abwärtskompatibel).
 - **Punkte je Spieler & Runde:**
   - Richtig angesagt: **`+10 + gemachte Stiche`**
   - Falsch angesagt: **`−10 + gemachte Stiche`**
@@ -125,6 +127,7 @@ Smartphone nutzen. → **Mobile-first.**
 ```jsonc
 games/<gameId> = {
   id, name, maxCards, currentRound,
+  restrictLastBid,                    // bool, default true (verbotene Ansage aktiv?)
   createdAt, updatedAt,
   players: [ { id, name, seatOrder } ],
   rounds:  [ {

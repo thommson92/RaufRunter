@@ -163,7 +163,7 @@ async function renderHome() {
 
 function renderNew() {
   if (!ui.draft) {
-    ui.draft = { name: '', maxCards: 7, players: ['', ''] };
+    ui.draft = { name: '', maxCards: 7, players: ['', ''], restrictLastBid: true };
   }
   const d = ui.draft;
   const playerInputs = d.players
@@ -190,6 +190,11 @@ function renderNew() {
       <label>Bis wie viele Karten? (Höhepunkt)</label>
       <input data-field="maxCards" type="number" inputmode="numeric" min="1" max="20" value="${d.maxCards}" />
       <small class="muted">Runden: 1 → ${d.maxCards} → 1 = ${totalRounds(d.maxCards)} Runden</small>
+      <label class="check-row">
+        <input type="checkbox" data-field="restrictLastBid" ${d.restrictLastBid ? 'checked' : ''} />
+        <span>Letzter Spieler darf die Ansage nicht aufgehen lassen</span>
+      </label>
+      <small class="muted">Standardregel an: Die Summe aller Ansagen darf nicht der Kartenzahl entsprechen. Aus = beliebige Ansagen erlaubt.</small>
     </div>
     <div class="card">
       <div class="row spread"><h2>Spieler & Sitzreihenfolge</h2></div>
@@ -242,6 +247,7 @@ function entryPanel(game) {
 
   const allBids = seated.every((p) => round.bids[p.id] != null);
   const trump = round.trump;
+  const restrict = game.restrictLastBid !== false; // fehlend ⇒ Standardregel an
 
   // Ansage-Zeilen
   const bidRows = seated
@@ -256,7 +262,7 @@ function entryPanel(game) {
       });
       const allowed = allowedBids({
         cardCount: cc,
-        isLastBidder: isLast && othersAllBid,
+        isLastBidder: isLast && othersAllBid && restrict,
         sumOtherBids: sumOther,
       });
       const pills = [];
@@ -270,7 +276,7 @@ function entryPanel(game) {
       }
       return `
         <div class="entry-player">${esc(p.name)} ${
-        isLast ? '<span class="pill">letzte Ansage</span>' : ''
+        isLast && restrict ? '<span class="pill">letzte Ansage</span>' : ''
       }</div>
         <div class="bid-grid">${pills.join('')}</div>`;
     })
@@ -459,6 +465,8 @@ function readDraftFromInputs() {
   const max = appEl.querySelector('[data-field="maxCards"]');
   if (name) ui.draft.name = name.value;
   if (max) ui.draft.maxCards = Math.max(1, Math.min(20, parseInt(max.value, 10) || 1));
+  const restrict = appEl.querySelector('[data-field="restrictLastBid"]');
+  if (restrict) ui.draft.restrictLastBid = restrict.checked;
   appEl.querySelectorAll('[data-pname]').forEach((inp) => {
     ui.draft.players[+inp.dataset.pname] = inp.value;
   });
@@ -526,6 +534,7 @@ async function onClick(e) {
         name: ui.draft.name,
         maxCards: ui.draft.maxCards,
         playerNames: names,
+        restrictLastBid: ui.draft.restrictLastBid !== false,
       });
       try {
         await fb.saveGame(newGame);

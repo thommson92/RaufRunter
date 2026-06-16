@@ -23,8 +23,13 @@ function uid() {
   return Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
 }
 
-/** Neues Spiel-Objekt erzeugen (noch nicht gespeichert). */
-export function createGame({ name, maxCards, playerNames }) {
+/**
+ * Neues Spiel-Objekt erzeugen (noch nicht gespeichert).
+ * @param {boolean} [restrictLastBid=true] Wenn true gilt die Standardregel:
+ *   die Summe aller Ansagen darf nicht der Kartenzahl entsprechen (letzter
+ *   Spieler eingeschränkt). Wenn false darf die Ansage-Summe aufgehen.
+ */
+export function createGame({ name, maxCards, playerNames, restrictLastBid = true }) {
   const players = playerNames.map((n, i) => ({
     id: uid(),
     name: n.trim(),
@@ -42,6 +47,7 @@ export function createGame({ name, maxCards, playerNames }) {
     id: uid(),
     name: name.trim() || 'Spiel',
     maxCards,
+    restrictLastBid,
     players,
     rounds,
     currentRound: 0,
