@@ -19,6 +19,8 @@ const appEl = document.getElementById('app');
 const ui = {
   draft: null,        // Entwurf im "Neues Spiel"-Formular
   activeRound: null,  // welche Runde im Eingabe-Panel offen ist
+  tableSort: 'seat',  // Punktestand-Sortierung: 'seat' (Sitzreihe) | 'rank' (Punkte)
+  tableTranspose: false, // Achsen tauschen: false = Spieler-Zeilen, true = Runden-Zeilen
 };
 
 // Aktuell abonniertes Spiel (Live-Cache aus Firestore).
@@ -406,38 +408,90 @@ function roundsHistory(game) {
 
 function standingsTable(game) {
   const { byPlayer, ranking } = standings(game);
-  const seated = seatSorted(game);
   const doneRounds = game.rounds.filter((r) => r.done);
   const rankOf = {};
   ranking.forEach((r) => (rankOf[r.playerId] = r.rank));
 
-  const head = `
-    <tr>
-      <th class="name">Spieler</th>
-      ${doneRounds.map((r) => `<th>R${r.index + 1}</th>`).join('')}
-      <th>Gesamt</th>
-    </tr>`;
+  // Spielerreihenfolge nach Sortierung: Sitzreihe oder Punktestand.
+  const byId = Object.fromEntries(game.players.map((p) => [p.id, p]));
+  const players =
+    ui.tableSort === 'rank'
+      ? ranking.map((r) => byId[r.playerId])
+      : seatSorted(game);
 
-  const rows = seated
-    .map((p) => {
-      const pr = byPlayer[p.id].perRound;
-      const cells = pr.map((v) => `<td>${fmtScore(v)}</td>`).join('');
-      const isLeader = rankOf[p.id] === 1 && byPlayer[p.id].total !== 0;
-      return `
+  const isLeader = (pid) => rankOf[pid] === 1 && byPlayer[pid].total !== 0;
+  const nameCell = (p) => `${isLeader(p.id) ? '🥇 ' : ''}${esc(p.name)}`;
+
+  let head, body;
+  if (!ui.tableTranspose) {
+    // Layout A: Spieler = Zeilen, Runden = Spalten
+    head = `
       <tr>
-        <td class="name ${isLeader ? 'rank-1' : ''}">${isLeader ? '🥇 ' : ''}${esc(p.name)}</td>
-        ${cells}
-        <td class="total">${fmtScore(byPlayer[p.id].total)}</td>
+        <th class="name">Spieler</th>
+        ${doneRounds.map((r) => `<th>R${r.index + 1}</th>`).join('')}
+        <th>Gesamt</th>
       </tr>`;
-    })
-    .join('');
+    body = players
+      .map((p) => {
+        const cells = byPlayer[p.id].perRound
+          .map((v) => `<td>${fmtScore(v)}</td>`)
+          .join('');
+        return `
+        <tr>
+          <td class="name ${isLeader(p.id) ? 'rank-1' : ''}">${nameCell(p)}</td>
+          ${cells}
+          <td class="total">${fmtScore(byPlayer[p.id].total)}</td>
+        </tr>`;
+      })
+      .join('');
+  } else {
+    // Layout B: Runden = Zeilen, Spieler = Spalten (Achsen getauscht)
+    head = `
+      <tr>
+        <th class="name">Runde</th>
+        ${players
+          .map(
+            (p) => `<th class="${isLeader(p.id) ? 'rank-1' : ''}">${nameCell(p)}</th>`,
+          )
+          .join('')}
+      </tr>`;
+    const roundRows = doneRounds
+      .map((r, i) => {
+        const cells = players
+          .map((p) => `<td>${fmtScore(byPlayer[p.id].perRound[i])}</td>`)
+          .join('');
+        return `
+        <tr>
+          <td class="name">R${r.index + 1}</td>
+          ${cells}
+        </tr>`;
+      })
+      .join('');
+    const totalRow = `
+      <tr>
+        <td class="name total">Gesamt</td>
+        ${players
+          .map((p) => `<td class="total">${fmtScore(byPlayer[p.id].total)}</td>`)
+          .join('')}
+      </tr>`;
+    body = roundRows + totalRow;
+  }
 
+  const sortLabel = ui.tableSort === 'rank' ? 'Punkte' : 'Sitzreihe';
   return `
     <div class="card">
-      <h2>Punktestand</h2>
+      <div class="row spread">
+        <h2 style="margin:0">Punktestand</h2>
+        <div class="btn-row" style="flex:0">
+          <button class="btn-ghost btn-sm" data-action="toggle-sort" style="min-width:auto"
+            title="Sortierung umschalten (Sitzreihe / Punkte)">↕ ${sortLabel}</button>
+          <button class="btn-ghost btn-sm" data-action="toggle-transpose" style="min-width:auto;flex:0"
+            title="Zeilen und Spalten tauschen">⇄</button>
+        </div>
+      </div>
       <div class="table-wrap"><table>
         <thead>${head}</thead>
-        <tbody>${rows}</tbody>
+        <tbody>${body}</tbody>
       </table></div>
       ${
         doneRounds.length === 0
@@ -553,6 +607,15 @@ async function onClick(e) {
       break;
     case 'share':
       shareGame(gid);
+      break;
+
+    case 'toggle-sort':
+      ui.tableSort = ui.tableSort === 'rank' ? 'seat' : 'rank';
+      renderActiveView();
+      break;
+    case 'toggle-transpose':
+      ui.tableTranspose = !ui.tableTranspose;
+      renderActiveView();
       break;
 
     case 'add-player':
