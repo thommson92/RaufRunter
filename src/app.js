@@ -7,6 +7,7 @@ import { randomName } from './names.js';
 import {
   standings,
   allowedBids,
+  biddingOrder,
   tricksCheck,
   randomTrump,
   totalRounds,
@@ -264,18 +265,22 @@ function renderPlayers() {
 
 function entryPanel(game) {
   const seated = seatSorted(game);
+  // Ansage-Reihenfolge folgt dem rotierenden Geber: er sagt zuletzt an und
+  // trägt den Nachteil der verbotenen Ansage. Rotiert pro Runde weiter.
+  const order = biddingOrder(seated, ui.activeRound);
   const round = game.rounds[ui.activeRound];
   if (!round) return '';
   const cc = round.cardCount;
 
-  const allBids = seated.every((p) => round.bids[p.id] != null);
+  const allBids = order.every((p) => round.bids[p.id] != null);
   const trump = round.trump;
   const restrict = game.restrictLastBid !== false; // fehlend ⇒ Standardregel an
+  const dealer = order[order.length - 1];
 
-  // Ansage-Zeilen
-  const bidRows = seated
+  // Ansage-Zeilen (in Ansage-Reihenfolge, Geber zuletzt)
+  const bidRows = order
     .map((p, pos) => {
-      const isLast = pos === seated.length - 1;
+      const isLast = pos === order.length - 1;
       let sumOther = 0;
       let othersAllBid = true;
       seated.forEach((o) => {
@@ -299,16 +304,18 @@ function entryPanel(game) {
       }
       return `
         <div class="entry-player">${esc(p.name)} ${
-        isLast && restrict ? '<span class="pill">letzte Ansage</span>' : ''
+        isLast ? '<span class="pill">🃏 gibt</span>' : ''
+      }${
+        isLast && restrict ? ' <span class="pill">letzte Ansage</span>' : ''
       }</div>
         <div class="bid-grid">${pills.join('')}</div>`;
     })
     .join('');
 
-  // Stiche-Zeilen (erst wenn alle Ansagen da sind)
+  // Stiche-Zeilen (erst wenn alle Ansagen da sind) — gleiche Reihenfolge
   let tricksSection = '';
   if (allBids) {
-    const tRows = seated
+    const tRows = order
       .map((p) => {
         const pills = [];
         for (let v = 0; v <= cc; v++) {
@@ -348,6 +355,13 @@ function entryPanel(game) {
         <h2 style="margin:0">Runde ${ui.activeRound + 1}/${game.rounds.length}</h2>
         <span class="pill">${cc} ${cc === 1 ? 'Karte' : 'Karten'}</span>
       </div>
+      ${
+        dealer
+          ? `<p class="muted" style="margin:6px 0 0;font-size:0.85rem">🃏 ${esc(
+              dealer.name,
+            )} gibt${restrict ? ' und sagt zuletzt an' : ''}</p>`
+          : ''
+      }
       <div class="row spread" style="margin-top:12px">
         <div>
           ${

@@ -6,6 +6,8 @@ import {
   roundScore,
   forbiddenBid,
   allowedBids,
+  dealerIndex,
+  biddingOrder,
   standings,
   tricksCheck,
   randomTrump,
@@ -80,6 +82,35 @@ test('allowedBids: Regel aus (isLastBidder=false) ⇒ letzter darf aufgehen lass
   // also darf auch der letzte Spieler den "aufgehenden" Wert (hier 2) wählen.
   const r = allowedBids({ cardCount: 3, isLastBidder: false, sumOtherBids: 1 });
   assert.ok(r.includes(2));
+});
+
+test('dealerIndex: rotiert pro Runde um einen Sitz', () => {
+  assert.equal(dealerIndex(0, 3), 0);
+  assert.equal(dealerIndex(1, 3), 1);
+  assert.equal(dealerIndex(2, 3), 2);
+  assert.equal(dealerIndex(3, 3), 0); // wieder von vorne
+  assert.equal(dealerIndex(4, 3), 1);
+});
+
+test('dealerIndex: robust bei ungültiger Spielerzahl', () => {
+  assert.equal(dealerIndex(5, 0), 0);
+  assert.equal(dealerIndex(5, -2), 0);
+});
+
+test('biddingOrder: Geber sagt zuletzt an, davor im Uhrzeigersinn', () => {
+  const seated = ['A', 'B', 'C', 'D'];
+  // Runde 0: Geber A (Sitz 0) → Reihenfolge B, C, D, A
+  assert.deepEqual(biddingOrder(seated, 0), ['B', 'C', 'D', 'A']);
+  // Runde 1: Geber B (Sitz 1) → Reihenfolge C, D, A, B
+  assert.deepEqual(biddingOrder(seated, 1), ['C', 'D', 'A', 'B']);
+  // Runde 4: wieder Geber A → wie Runde 0
+  assert.deepEqual(biddingOrder(seated, 4), ['B', 'C', 'D', 'A']);
+  // Geber ist immer der letzte Eintrag
+  assert.equal(biddingOrder(seated, 2).at(-1), 'C');
+});
+
+test('biddingOrder: leere Sitzreihenfolge ⇒ leer', () => {
+  assert.deepEqual(biddingOrder([], 3), []);
 });
 
 test('standings: Summen, Verlauf und geteilte Ränge', () => {
