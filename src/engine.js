@@ -55,6 +55,39 @@ export function forbiddenBid(cardCount, sumOtherBids) {
 }
 
 /**
+ * Sitzposition (Index in der Sitzreihenfolge) des Gebers einer Runde.
+ * Wie im echten Spiel rotiert der Geber pro Runde um einen Platz weiter
+ * (im Uhrzeigersinn bzw. von oben nach unten). Runde 0 gibt Sitz 0.
+ * Der Geber sagt zuletzt an und hat damit den Nachteil der verbotenen Ansage.
+ * @param {number} roundIndex   0-basierter Rundenindex
+ * @param {number} playerCount  Anzahl Spieler
+ * @returns {number}            Index in der Sitzreihenfolge (0..playerCount-1)
+ */
+export function dealerIndex(roundIndex, playerCount) {
+  if (!Number.isFinite(playerCount) || playerCount <= 0) return 0;
+  const i = Math.floor(roundIndex);
+  return ((i % playerCount) + playerCount) % playerCount;
+}
+
+/**
+ * Ansage-Reihenfolge einer Runde. Der Geber (siehe dealerIndex) sagt zuletzt an;
+ * die Reihenfolge davor rotiert im Uhrzeigersinn, beginnend beim Spieler direkt
+ * nach dem Geber.
+ * @template T
+ * @param {T[]} seated       Spieler in Sitzreihenfolge
+ * @param {number} roundIndex 0-basierter Rundenindex
+ * @returns {T[]}            Spieler in Ansage-Reihenfolge (Geber zuletzt)
+ */
+export function biddingOrder(seated, roundIndex) {
+  const n = seated.length;
+  if (n === 0) return [];
+  const d = dealerIndex(roundIndex, n);
+  const order = [];
+  for (let k = 1; k <= n; k++) order.push(seated[(d + k) % n]);
+  return order;
+}
+
+/**
  * Welche Ansage-Werte (0..cardCount) darf ein Spieler wählen?
  * Nur der letzte Spieler ist eingeschränkt.
  * @param {object} p

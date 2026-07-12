@@ -30,10 +30,17 @@ Smartphone nutzen. → **Mobile-first.**
   **Pro Spiel umschaltbar** über das Feld `upOnly` (beim Anlegen wählbar, Standard
   **rauf & runter**). Ist `upOnly` aktiv, wird **nur 1 → max** gespielt (`N` Runden,
   Folge `1,2,…,N`). Fehlendes Feld ⇒ rauf & runter (abwärtskompatibel).
-- **Ablauf je Runde:** Erst sagen alle Spieler in **Sitzreihenfolge** ihre Stiche an,
-  dann wird gespielt, danach werden die **tatsächlich gemachten Stiche** eingetragen.
+- **Ablauf je Runde:** Erst sagen alle Spieler ihre Stiche an, dann wird gespielt,
+  danach werden die **tatsächlich gemachten Stiche** eingetragen.
+- **Geber rotiert (Ansage-Reihenfolge):** Wie im echten Spiel wandert der **Geber**
+  pro Runde einen Sitz weiter (im Uhrzeigersinn bzw. von oben nach unten): Runde 1 gibt
+  der erste Spieler der Sitzreihenfolge, Runde 2 der zweite usw. (`dealerIndex =
+  Rundenindex mod Spielerzahl`). Der **Geber sagt zuletzt an** und trägt damit den
+  **Nachteil der verbotenen Ansage** (siehe unten). Die Ansage-Reihenfolge beginnt beim
+  Spieler direkt nach dem Geber und rotiert im Uhrzeigersinn (`engine.biddingOrder`).
 - **Verbotene Ansage (letzter Spieler):** Die **Summe aller Ansagen darf nicht der
-  Kartenzahl der Runde entsprechen.** Nur der **letzte** Ansagende ist eingeschränkt; die
+  Kartenzahl der Runde entsprechen.** Nur der **letzte** Ansagende (= der **Geber** dieser
+  Runde, siehe Geber-Rotation) ist eingeschränkt; die
   App sperrt genau den Wert `Kartenzahl − Summe der übrigen Ansagen` (sofern im Bereich
   `0..Kartenzahl`). **Pro Spiel umschaltbar** über das Feld `restrictLastBid` (beim
   Anlegen wählbar, Standard **an**). Ist es aus, darf auch der letzte Spieler beliebig
@@ -165,6 +172,7 @@ docs/SPEZIFIKATION.md   dieses Dokument
 - `totalRounds(maxCards)` → Rundenanzahl
 - `roundScore(bid, tricks)` → Punkte einer Runde
 - `forbiddenBid(cardCount, sumOtherBids)` / `allowedBids({...})` → verbotene-Ansage-Regel
+- `dealerIndex(roundIndex, playerCount)` / `biddingOrder(seated, roundIndex)` → rotierender Geber (letzter Ansagender) & Ansage-Reihenfolge
 - `standings(game)` → `{ byPlayer, ranking }` (Summen, Verlauf, geteilte Ränge)
 - `tricksCheck(round)` → Plausibilität (Summe Stiche == Kartenzahl)
 - `randomTrump()` / `TRUMP_COLORS`
