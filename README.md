@@ -11,6 +11,9 @@ Mobile-first, läuft als statische Seite auf **GitHub Pages**.
 - Punktestand-Tabelle, Runden nachträglich editierbar, Sitzreihenfolge änderbar.
 - Optionaler **„Farbe losen"-Knopf** (Rot/Blau/Grün/Gelb).
 - Zuschauer-Link (read-only), **geräteübergreifend live** über Firestore.
+- **Statistiken in der Zuschaueransicht:** Fakten-Kacheln (Trefferquote, meiste/wenigste
+  Ansagen, Treffer-Serie, beste Einzelrunde, häufigste Trumpffarbe) + Charts
+  (Punkteverlauf, Platzierungsverlauf, Angesagt vs. gemacht).
 - Installierbar als **PWA** („Zum Startbildschirm"), Oberfläche offline-fähig.
 
 **Live:** <https://thommson92.github.io/RaufRunter/>
@@ -35,5 +38,5 @@ Vollständige Spezifikation, Entscheidungs-Log, Tech-Stack und Implementierungsp
 **[docs/SPEZIFIKATION.md](docs/SPEZIFIKATION.md)**.
 
 ## Stand
-M0–M5 fertig: Engine, Schreiber-UI, Firestore-Live-Sync, Zuschauer-View, PWA und
-Deploy. App ist live. Mögliche Nächstes: echter Zwei-Geräte-Test, Feinschliff.
+M0–M6 fertig: Engine, Schreiber-UI, Firestore-Live-Sync, Zuschauer-View, PWA, Deploy und
+Statistiken/Auswertung. App ist live. Mögliche Nächstes: echter Zwei-Geräte-Test, Feinschliff.

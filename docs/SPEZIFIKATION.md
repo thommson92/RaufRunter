@@ -176,6 +176,17 @@ docs/SPEZIFIKATION.md   dieses Dokument
 - `standings(game)` → `{ byPlayer, ranking }` (Summen, Verlauf, geteilte Ränge)
 - `tricksCheck(round)` → Plausibilität (Summe Stiche == Kartenzahl)
 - `randomTrump()` / `TRUMP_COLORS`
+- **Statistiken (M6):** `rankProgression(game)` (kumulierter Punktestand & geteilter Rang je fertiger Runde),
+  `bidTrickTotals(game)` (Summe Ansagen/Stiche je Spieler), `accuracyStats(game)` (Trefferquote),
+  `longestCorrectStreak(game)`, `extremeRounds(game)` (beste/schlechteste Einzelrunde),
+  `trumpCounts(game)` (Häufigkeit geloster Trumpffarben)
+
+### Charts (`src/charts.js`)
+DOM-Bausteine (kein Chart-Framework) für die Zuschaueransicht: `assignSeriesColors(players)`
+(stabile Spieler→Farbe-Zuordnung nach Sitzreihenfolge), `buildScoreChart`/`buildRankChart`
+(interaktiver SVG-Mehrlinien-Chart mit Crosshair/Tooltip/Legende) und `buildBidVsTricksChart`
+(HTML/CSS-Balken Angesagt vs. gemacht). Farbpalette (`--series-1..8` in `styles.css`) ist die
+dataviz-Skill-Referenzpalette, gegen die dunkle Oberfläche validiert.
 
 ---
 
@@ -189,6 +200,7 @@ docs/SPEZIFIKATION.md   dieses Dokument
 | **M3** | **Firestore-Adapter** (`src/store-firebase.js`): gleiche Schnittstelle wie `store.js`, Live-Listener via `onSnapshot`, Spiel-IDs cloudweit, Liste & Löschen; `app.js` auf async/live umgestellt; persistenter IndexedDB-Cache (offline-tauglich) | ✅ fertig |
 | **M4** | Zuschauer-View `#/view/<id>` jetzt geräteübergreifend live (gleiches `onSnapshot`-Abo, read-only) + Share-Button | ✅ fertig |
 | **M5** | PWA (Manifest, Service-Worker, Icons) + Deploy auf `main` → live unter https://thommson92.github.io/RaufRunter/. SW nutzt **network-first** (online immer frischer Code, Cache nur als Offline-Fallback) + **Auto-Reload bei Update** (wiederkehrende Nutzer laden einmal automatisch neu) — so erreichen Deploys die Geräte zuverlässig. | ✅ fertig |
+| **M6** | Statistiken & Auswertung in der Zuschaueransicht: Fakten-Kacheln (Trefferquote, meiste/wenigste Ansagen, Treffer-Serie, beste Einzelrunde, häufigste Trumpffarbe) + drei Charts (Punkteverlauf, Platzierungsverlauf, Angesagt vs. gemacht). Reine Engine-Funktionen (`src/engine.js`) + DOM-Chart-Bausteine (`src/charts.js`), keine neuen Datenfelder. | ✅ fertig |
 
 ### Status-Notiz (M3/M4 verifiziert)
 - Smoke-Test via Chrome-headless + DevTools-Protokoll: Startseite/`listGames` lädt,

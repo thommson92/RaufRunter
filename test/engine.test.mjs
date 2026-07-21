@@ -9,6 +9,12 @@ import {
   dealerIndex,
   biddingOrder,
   standings,
+  rankProgression,
+  bidTrickTotals,
+  accuracyStats,
+  longestCorrectStreak,
+  extremeRounds,
+  trumpCounts,
   tricksCheck,
   randomTrump,
   TRUMP_COLORS,
@@ -135,6 +141,93 @@ test('standings: Summen, Verlauf und geteilte Ränge', () => {
   assert.equal(ranking[0].rank, 1);
   assert.equal(ranking[1].rank, 2);
   assert.equal(ranking[2].rank, 2);
+});
+
+// Gemeinsames Fixture für die Statistik-Funktionen (M6).
+const statsGame = {
+  players: [
+    { id: 'a', name: 'Anna' },
+    { id: 'b', name: 'Ben' },
+    { id: 'c', name: 'Cara' },
+  ],
+  rounds: [
+    {
+      index: 0,
+      cardCount: 1,
+      done: true,
+      trump: 'Rot',
+      bids: { a: 1, b: 0, c: 0 },
+      tricks: { a: 1, b: 0, c: 1 },
+    },
+    {
+      index: 1,
+      cardCount: 2,
+      done: true,
+      trump: 'Blau',
+      bids: { a: 1, b: 1, c: 0 },
+      tricks: { a: 0, b: 1, c: 0 },
+    },
+    // Runde 3 offen (nicht done), aber Trumpf schon gelost -> zählt bei trumpCounts,
+    // nirgendwo sonst.
+    { index: 2, cardCount: 2, done: false, trump: 'Rot', bids: { a: 1 }, tricks: {} },
+  ],
+};
+
+test('bidTrickTotals: Summe Ansagen & Stiche je Spieler über fertige Runden', () => {
+  const t = bidTrickTotals(statsGame);
+  assert.deepEqual(t.a, { bidSum: 2, trickSum: 1, roundsPlayed: 2 });
+  assert.deepEqual(t.b, { bidSum: 1, trickSum: 1, roundsPlayed: 2 });
+  assert.deepEqual(t.c, { bidSum: 0, trickSum: 1, roundsPlayed: 2 });
+});
+
+test('accuracyStats: Trefferquote = richtige Ansagen / gespielte Runden', () => {
+  const s = accuracyStats(statsGame);
+  assert.deepEqual(s.a, { attempts: 2, correct: 1, accuracy: 0.5 });
+  assert.deepEqual(s.b, { attempts: 2, correct: 2, accuracy: 1 });
+  assert.deepEqual(s.c, { attempts: 2, correct: 1, accuracy: 0.5 });
+});
+
+test('accuracyStats: ohne gespielte Runde ⇒ accuracy null', () => {
+  const empty = { players: [{ id: 'x', name: 'X' }], rounds: [] };
+  assert.equal(accuracyStats(empty).x.accuracy, null);
+});
+
+test('longestCorrectStreak: Serie bricht bei falscher Ansage ab', () => {
+  const streaks = longestCorrectStreak(statsGame);
+  assert.equal(streaks.a, 1); // Runde 1 richtig, Runde 2 falsch
+  assert.equal(streaks.b, 2); // beide Runden richtig
+  assert.equal(streaks.c, 1); // Runde 1 falsch, Runde 2 richtig
+});
+
+test('extremeRounds: beste & schlechteste Einzelrundenpunktzahl', () => {
+  const { best, worst } = extremeRounds(statsGame);
+  assert.equal(best.playerId, 'a');
+  assert.equal(best.roundIndex, 0);
+  assert.equal(best.score, 11);
+  assert.equal(worst.playerId, 'a');
+  assert.equal(worst.roundIndex, 1);
+  assert.equal(worst.score, -10);
+});
+
+test('trumpCounts: zählt auch Trumpf offener Runden', () => {
+  assert.deepEqual(trumpCounts(statsGame), { Rot: 2, Blau: 1, Grün: 0, Gelb: 0 });
+});
+
+test('rankProgression: kumulierte Punkte & geteilte Ränge je Runde', () => {
+  const points = rankProgression(statsGame);
+  assert.equal(points.length, 2); // nur fertige Runden
+  assert.deepEqual(points[0], {
+    roundIndex: 0,
+    cardCount: 1,
+    totals: { a: 11, b: 10, c: -9 },
+    ranks: { a: 1, b: 2, c: 3 },
+  });
+  assert.deepEqual(points[1], {
+    roundIndex: 1,
+    cardCount: 2,
+    totals: { a: 1, b: 21, c: 1 },
+    ranks: { a: 2, b: 1, c: 2 },
+  });
 });
 
 test('tricksCheck: Summe muss Kartenzahl entsprechen', () => {

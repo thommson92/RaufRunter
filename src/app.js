@@ -11,7 +11,14 @@ import {
   tricksCheck,
   randomTrump,
   totalRounds,
+  rankProgression,
+  bidTrickTotals,
+  accuracyStats,
+  longestCorrectStreak,
+  extremeRounds,
+  trumpCounts,
 } from './engine.js';
+import { assignSeriesColors, buildScoreChart, buildRankChart, buildBidVsTricksChart } from './charts.js';
 
 const appEl = document.getElementById('app');
 
@@ -546,7 +553,120 @@ function renderViewer() {
     game.rounds.length
   } · nur Ansicht</p>
     ${standingsTable(game)}
+    ${statsFactsCard(game)}
+    ${statsChartCards()}
   `;
+  mountStatsCharts(game);
+}
+
+// ---------- Statistiken (Zuschaueransicht) ----------
+const TRUMP_EMOJI = { Rot: '🔴', Blau: '🔵', Grün: '🟢', Gelb: '🟡' };
+
+/** Bestes & schlechtestes Element einer Liste { value } — für Fakten-Kacheln. */
+function pickExtreme(entries) {
+  if (!entries.length) return { best: null, worst: null };
+  const sorted = [...entries].sort((a, b) => b.value - a.value);
+  return { best: sorted[0], worst: sorted[sorted.length - 1] };
+}
+
+function statTile(icon, label, value, sub) {
+  return `
+    <div class="stat-tile">
+      <div class="stat-tile-icon">${icon}</div>
+      <div class="stat-tile-label">${esc(label)}</div>
+      <div class="stat-tile-value">${value}</div>
+      <div class="stat-tile-sub">${esc(sub)}</div>
+    </div>`;
+}
+
+function statsFactsCard(game) {
+  const doneRounds = game.rounds.filter((r) => r.done);
+  const body = !doneRounds.length
+    ? '<p class="center muted" style="margin:10px 0 0">Noch keine fertige Runde.</p>'
+    : statsFacts(game, doneRounds);
+  return `<div class="card"><h2>Statistiken</h2>${body}</div>`;
+}
+
+function statsFacts(game, doneRounds) {
+  const acc = accuracyStats(game);
+  const totals = bidTrickTotals(game);
+  const streaks = longestCorrectStreak(game);
+  const { best: bestRound } = extremeRounds(game);
+  const trumps = trumpCounts(game);
+
+  const accEntries = game.players
+    .map((p) => ({ name: p.name, value: acc[p.id].accuracy }))
+    .filter((e) => e.value != null);
+  const { best: bestAcc, worst: worstAcc } = pickExtreme(accEntries);
+
+  const bidEntries = game.players.map((p) => ({ name: p.name, value: totals[p.id].bidSum }));
+  const { best: mostBid, worst: fewestBid } = pickExtreme(bidEntries);
+
+  const streakEntries = game.players
+    .map((p) => ({ name: p.name, value: streaks[p.id] }))
+    .filter((e) => e.value > 0);
+  const bestStreak = pickExtreme(streakEntries).best;
+
+  const topTrump = Object.entries(trumps)
+    .filter(([, n]) => n > 0)
+    .sort((a, b) => b[1] - a[1])[0];
+
+  const tiles = [];
+  if (bestAcc) {
+    tiles.push(statTile('🎯', 'Treffsicherste Ansage', esc(bestAcc.name), `${Math.round(bestAcc.value * 100)}% Treffer`));
+  }
+  if (worstAcc && worstAcc.value !== bestAcc.value) {
+    tiles.push(statTile('🎲', 'Unsicherste Ansage', esc(worstAcc.name), `${Math.round(worstAcc.value * 100)}% Treffer`));
+  }
+  if (mostBid) {
+    tiles.push(statTile('✋', 'Meiste Stiche angesagt', esc(mostBid.name), `${mostBid.value} insgesamt`));
+  }
+  if (fewestBid && fewestBid.value !== mostBid.value) {
+    tiles.push(statTile('🤏', 'Wenigste Stiche angesagt', esc(fewestBid.name), `${fewestBid.value} insgesamt`));
+  }
+  if (bestStreak) {
+    tiles.push(statTile('🔥', 'Längste Treffer-Serie', esc(bestStreak.name), `${bestStreak.value} Runden in Folge`));
+  }
+  if (bestRound) {
+    const signed = bestRound.score > 0 ? '+' + bestRound.score : String(bestRound.score);
+    tiles.push(statTile('🏆', 'Beste Einzelrunde', esc(bestRound.name), `${signed} Punkte in Runde ${bestRound.roundIndex + 1}`));
+  }
+  if (topTrump) {
+    tiles.push(statTile(TRUMP_EMOJI[topTrump[0]] || '🎲', 'Liebste Trumpffarbe', esc(topTrump[0]), `${topTrump[1]}× gelost`));
+  }
+
+  return `<div class="stat-grid">${tiles.join('')}</div>`;
+}
+
+function chartCard(title, chartId) {
+  return `
+    <div class="card">
+      <h2 style="margin-bottom:4px">${esc(title)}</h2>
+      <div class="chart-mount" data-chart="${chartId}"></div>
+    </div>`;
+}
+
+function statsChartCards() {
+  return (
+    chartCard('Punkteverlauf', 'score') +
+    chartCard('Platzierungsverlauf', 'rank') +
+    chartCard('Angesagt vs. gemacht', 'bidtrick')
+  );
+}
+
+function mountStatsCharts(game) {
+  const series = assignSeriesColors(game.players);
+  const progression = rankProgression(game);
+  const totals = bidTrickTotals(game);
+
+  const scoreMount = appEl.querySelector('[data-chart="score"]');
+  if (scoreMount) scoreMount.replaceChildren(buildScoreChart(progression, series));
+
+  const rankMount = appEl.querySelector('[data-chart="rank"]');
+  if (rankMount) rankMount.replaceChildren(buildRankChart(progression, series));
+
+  const bidTrickMount = appEl.querySelector('[data-chart="bidtrick"]');
+  if (bidTrickMount) bidTrickMount.replaceChildren(buildBidVsTricksChart(game.players, totals));
 }
 
 // ---------- Aktionen ----------
