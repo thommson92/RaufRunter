@@ -178,11 +178,17 @@ docs/SPEZIFIKATION.md   dieses Dokument
 - `randomTrump()` / `TRUMP_COLORS`
 - **Statistiken (M6):** `rankProgression(game)` (kumulierter Punktestand & geteilter Rang je fertiger Runde),
   `bidTrickTotals(game)` (Summe Ansagen/Stiche je Spieler), `accuracyStats(game)` (Trefferquote),
-  `longestCorrectStreak(game)`, `extremeRounds(game)` (beste/schlechteste Einzelrunde),
-  `trumpCounts(game)` (Häufigkeit geloster Trumpffarben)
+  `longestCorrectStreak(game)`, `extremeRounds(game)` (beste/schlechteste Einzelrunde — gibt
+  **alle** Einträge am Extremwert zurück, nicht nur den ersten), `trumpCounts(game)` (Häufigkeit
+  geloster Trumpffarben)
 - **Geber-Auslosung (M7):** `rotateToStart(list, startIndex)` — rotiert ein Array (Namen oder
   Spieler) so, dass das Element an `startIndex` künftig an Position 0 steht; Nachbarschaft/
   relative Reihenfolge bleibt erhalten, mutiert nichts.
+- **Malus & Rundenkommentar (M8):** `malusStats(game)` (Bilanz je Spieler in Runden, in denen er
+  als Geber die verbotene Ansage wirklich einschränkte — nur gezählt, wenn `forbiddenBid` ≠ null,
+  sonst kein „echter" Malus), `roundEvents(game, roundIndex)` (strukturierte Fakten einer fertigen
+  Runde: Held/Bösewicht, Nullansagen, Führungswechsel, Kletterer in der Platzierung — Grundlage
+  für den Rundenkommentar, siehe `src/commentary.js`)
 
 ### Charts (`src/charts.js`)
 DOM-Bausteine (kein Chart-Framework) für die Zuschaueransicht: `assignSeriesColors(players)`
@@ -200,6 +206,16 @@ empirisch über 200k Ziehungen als unverzerrt verifiziert) und ruft `onSettled(w
 sobald sie steht; die Sitzreihenfolge wird erst danach per `rotateToStart` gesetzt und das Spiel
 angelegt (kein Zwischenspeichern eines unvollständigen Spiels).
 
+### Kommentar-Generator (`src/commentary.js`)
+`generateRoundCommentary(events)` — regelbasierter „Kommentator"-Text zur zuletzt fertig
+gespielten Runde, aus `engine.roundEvents()` gespeist. **Kein LLM/KI-Aufruf** (bewusste
+Entscheidung: ein echter API-Aufruf bräuchte einen Server-Proxy, um den Schlüssel geheim zu
+halten, und würde Firebase auf den kostenpflichtigen „Blaze"-Tarif zwingen — reine
+Textbausteine sind kostenlos, ohne Backend, sofort nutzbar). Wählt aus mehreren Formulierungs-
+Varianten pro Ereignistyp (Held/Bösewicht der Runde, Nullansage getroffen/verfehlt,
+Führungswechsel, größter Aufstieg) — deterministisch über einen Seed aus der Rundennummer, damit
+der Text bei den vielen Re-Renders durchs Live-Abo nicht flackert.
+
 ---
 
 ## 7. Implementierungsplan & Status
@@ -214,6 +230,7 @@ angelegt (kein Zwischenspeichern eines unvollständigen Spiels).
 | **M5** | PWA (Manifest, Service-Worker, Icons) + Deploy auf `main` → live unter https://thommson92.github.io/RaufRunter/. SW nutzt **network-first** (online immer frischer Code, Cache nur als Offline-Fallback) + **Auto-Reload bei Update** (wiederkehrende Nutzer laden einmal automatisch neu) — so erreichen Deploys die Geräte zuverlässig. | ✅ fertig |
 | **M6** | Statistiken & Auswertung in der Zuschaueransicht: Fakten-Kacheln (Trefferquote, meiste/wenigste Ansagen, Treffer-Serie, beste Einzelrunde, häufigste Trumpffarbe) + drei Charts (Punkteverlauf, Platzierungsverlauf, Angesagt vs. gemacht). Reine Engine-Funktionen (`src/engine.js`) + DOM-Chart-Bausteine (`src/charts.js`), keine neuen Datenfelder. | ✅ fertig |
 | **M7** | Feinschliff Zuschaueransicht: Punktestand-Tabelle zeigt Kartenzahl statt Rundennummer, Gesamt-Spalte sticky + Auto-Scroll zur aktuellsten Runde + dauerhaft sichtbare Scrollbar; Live-Panel zur aktuellen Runde (Geber, Ansage-Fortschritt, Rest/Überzahl, wer ist dran); Punkteverlauf-Y-Achse in 10/20/50er-Schritten (nie 100). Neues-Spiel-Anlegen: Option „Ersten Geber auslosen" öffnet vor dem Start ein echtes SVG-Glücksrad (`src/wheel.js`), das die Sitzreihenfolge per `rotateToStart` setzt. Startseite: Datum je Spiel, neuer Footer mit Copyright. Spiel löschen jetzt mit Passwortabfrage. | ✅ fertig |
+| **M8** | Zuschaueransicht: „Spielleiter-Ansicht"-Button (analog zum „Zuschauer-Ansicht"-Button auf der anderen Seite); Punktestand-Sortierung & Zeilen/Spalten-Achse als klar beschriftete Segmented Controls statt zweideutiger Toggle-Buttons; Fakten-Kacheln nennen bei Gleichstand alle betroffenen Namen (`extremeGroup`/`extremeRounds` als Arrays); neue „Malus-Bilanz"-Karte (`malusStats`); regelbasierter Rundenkommentar (`src/commentary.js` + `engine.roundEvents`). | ✅ fertig |
 
 ### Status-Notiz (M3/M4 verifiziert)
 - Smoke-Test via Chrome-headless + DevTools-Protokoll: Startseite/`listGames` lädt,

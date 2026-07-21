@@ -167,6 +167,26 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 12px 0 
 .live-row-waiting { opacity: 0.55; }
 .pill-next { background: var(--primary); color: var(--primary-ink); font-weight: 700; }
 
+/* ---- Standings-Tabelle: Steuerung (Sortierung / Ausrichtung) ---- */
+.table-controls {
+  display: flex; flex-wrap: wrap; gap: 12px 20px; margin-bottom: 14px;
+}
+.table-controls > div { flex: 1; min-width: 160px; }
+.table-controls-label {
+  display: block; font-size: 0.72rem; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 5px;
+}
+.seg-group {
+  display: flex; gap: 3px; background: var(--bg);
+  border: 1px solid var(--line); border-radius: 10px; padding: 3px;
+}
+.seg-btn {
+  flex: 1; min-height: 0; padding: 8px 4px; border-radius: 7px;
+  background: transparent; color: var(--muted); font-size: 0.8rem; font-weight: 600;
+  text-align: center; line-height: 1.15;
+}
+.seg-btn.active { background: var(--primary); color: var(--primary-ink); }
+
 /* ---- Standings-Tabelle ---- */
 .table-wrap {
   overflow-x: auto;

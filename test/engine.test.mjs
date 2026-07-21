@@ -16,6 +16,8 @@ import {
   longestCorrectStreak,
   extremeRounds,
   trumpCounts,
+  malusStats,
+  roundEvents,
   tricksCheck,
   randomTrump,
   TRUMP_COLORS,
@@ -224,14 +226,140 @@ test('longestCorrectStreak: Serie bricht bei falscher Ansage ab', () => {
   assert.equal(streaks.c, 1); // Runde 1 falsch, Runde 2 richtig
 });
 
-test('extremeRounds: beste & schlechteste Einzelrundenpunktzahl', () => {
+test('extremeRounds: beste & schlechteste Einzelrundenpunktzahl (Arrays)', () => {
   const { best, worst } = extremeRounds(statsGame);
-  assert.equal(best.playerId, 'a');
-  assert.equal(best.roundIndex, 0);
-  assert.equal(best.score, 11);
-  assert.equal(worst.playerId, 'a');
-  assert.equal(worst.roundIndex, 1);
-  assert.equal(worst.score, -10);
+  // Anna (Runde 0) und Ben (Runde 1) liegen mit je 11 Punkten gleichauf.
+  assert.equal(best.length, 2);
+  assert.deepEqual(best.map((e) => e.playerId).sort(), ['a', 'b']);
+  assert.ok(best.every((e) => e.score === 11));
+  assert.equal(worst.length, 1);
+  assert.equal(worst[0].playerId, 'a');
+  assert.equal(worst[0].roundIndex, 1);
+  assert.equal(worst[0].score, -10);
+});
+
+test('extremeRounds: Gleichstand liefert alle Einträge am Extremwert', () => {
+  const game = {
+    players: [
+      { id: 'a', name: 'Anna' },
+      { id: 'b', name: 'Ben' },
+    ],
+    rounds: [
+      { index: 0, cardCount: 1, done: true, bids: { a: 1, b: 0 }, tricks: { a: 1, b: 0 } }, // beide +11/+10... eigentlich a=11,b=10
+      { index: 1, cardCount: 1, done: true, bids: { a: 0, b: 1 }, tricks: { a: 0, b: 1 } }, // a=10, b=11
+    ],
+  };
+  const { best } = extremeRounds(game);
+  assert.equal(best.length, 2); // a in Runde 0 und b in Runde 1, beide 11
+  assert.deepEqual(best.map((e) => e.playerId).sort(), ['a', 'b']);
+});
+
+test('extremeRounds: keine fertige Runde ⇒ leere Arrays', () => {
+  const empty = { players: [{ id: 'a', name: 'A' }], rounds: [] };
+  assert.deepEqual(extremeRounds(empty), { best: [], worst: [] });
+});
+
+test('malusStats: zählt nur Runden, in denen die verbotene Ansage wirklich griff', () => {
+  const players = [
+    { id: 'a', name: 'Anna', seatOrder: 0 },
+    { id: 'b', name: 'Ben', seatOrder: 1 },
+    { id: 'c', name: 'Cara', seatOrder: 2 },
+  ];
+  const game = {
+    restrictLastBid: true,
+    players,
+    rounds: [
+      // Runde 0 (3 Karten): Geber ist a (dealerIndex(0,3)=0). b=1,c=1 -> Rest 1,
+      // verboten=1 (im Bereich 0..3) -> Malus greift. a sagt 2 an, trifft (Stiche 2).
+      { index: 0, cardCount: 3, done: true, bids: { a: 2, b: 1, c: 1 }, tricks: { a: 2, b: 1, c: 0 } },
+      // Runde 1 (2 Karten): Geber ist b (dealerIndex(1,3)=1). c=1,a=0 -> Rest 1,
+      // verboten=1 (im Bereich 0..2) -> Malus greift. b sagt 0 an, verschätzt sich (Stiche 1).
+      { index: 1, cardCount: 2, done: true, bids: { a: 0, b: 0, c: 1 }, tricks: { a: 0, b: 1, c: 1 } },
+      // Runde 2 (1 Karte): Geber ist c (dealerIndex(2,3)=2). a=1,b=1 -> Rest -1,
+      // außerhalb 0..1 -> KEIN echter Malus für c, zählt nicht mit.
+      { index: 2, cardCount: 1, done: true, bids: { a: 1, b: 1, c: 0 }, tricks: { a: 1, b: 0, c: 0 } },
+    ],
+  };
+  const stats = malusStats(game);
+  assert.deepEqual(stats.a, { rounds: 1, correct: 1, wrong: 0 });
+  assert.deepEqual(stats.b, { rounds: 1, correct: 0, wrong: 1 });
+  assert.deepEqual(stats.c, { rounds: 0, correct: 0, wrong: 0 });
+});
+
+test('malusStats: restrictLastBid aus ⇒ nie Malus', () => {
+  const players = [
+    { id: 'a', name: 'Anna', seatOrder: 0 },
+    { id: 'b', name: 'Ben', seatOrder: 1 },
+  ];
+  const game = {
+    restrictLastBid: false,
+    players,
+    rounds: [
+      { index: 0, cardCount: 2, done: true, bids: { a: 1, b: 1 }, tricks: { a: 1, b: 1 } },
+    ],
+  };
+  const stats = malusStats(game);
+  assert.deepEqual(stats.a, { rounds: 0, correct: 0, wrong: 0 });
+  assert.deepEqual(stats.b, { rounds: 0, correct: 0, wrong: 0 });
+});
+
+test('roundEvents: Fakten der ersten Runde (kein Vorher-Rang, keine Kletterer)', () => {
+  const players = [
+    { id: 'a', name: 'Anna', seatOrder: 0 },
+    { id: 'b', name: 'Ben', seatOrder: 1 },
+    { id: 'c', name: 'Cara', seatOrder: 2 },
+  ];
+  const game = {
+    players,
+    rounds: [
+      { index: 0, cardCount: 1, done: true, bids: { a: 1, b: 0, c: 0 }, tricks: { a: 1, b: 0, c: 1 } },
+      { index: 1, cardCount: 2, done: true, bids: { a: 1, b: 1, c: 0 }, tricks: { a: 0, b: 1, c: 0 } },
+    ],
+  };
+
+  const e0 = roundEvents(game, 0);
+  assert.equal(e0.dealerName, 'Anna'); // dealerIndex(0,3)=0 -> a gibt
+  assert.deepEqual(e0.heroes.map((h) => h.playerId), ['a']); // +11, Bestwert
+  assert.deepEqual(e0.villains.map((v) => v.playerId), ['c']); // -9, Schlechtestwert
+  assert.deepEqual(e0.zeroBids.map((z) => z.playerId).sort(), ['b', 'c']);
+  assert.equal(e0.leadChanged, false); // keine Vorrunde zum Vergleichen
+  assert.deepEqual(e0.climbers, []);
+  assert.deepEqual(e0.leaders.map((l) => l.id), ['a']);
+  assert.equal(e0.allCorrect, false);
+  assert.equal(e0.allWrong, false);
+});
+
+test('roundEvents: Führungswechsel & Kletterer werden erkannt', () => {
+  const players = [
+    { id: 'a', name: 'Anna', seatOrder: 0 },
+    { id: 'b', name: 'Ben', seatOrder: 1 },
+    { id: 'c', name: 'Cara', seatOrder: 2 },
+  ];
+  const game = {
+    players,
+    rounds: [
+      { index: 0, cardCount: 1, done: true, bids: { a: 1, b: 0, c: 0 }, tricks: { a: 1, b: 0, c: 1 } },
+      // a fällt zurück (-10), b übernimmt die Führung (+11), c zieht vorbei (+10).
+      { index: 1, cardCount: 2, done: true, bids: { a: 1, b: 1, c: 0 }, tricks: { a: 0, b: 1, c: 0 } },
+    ],
+  };
+
+  const e1 = roundEvents(game, 1);
+  assert.equal(e1.dealerName, 'Ben'); // dealerIndex(1,3)=1 -> b gibt
+  assert.deepEqual(e1.heroes.map((h) => h.playerId), ['b']);
+  assert.deepEqual(e1.villains.map((v) => v.playerId), ['a']);
+  assert.equal(e1.leadChanged, true); // Anna (Runde 0) -> Ben (Runde 1)
+  assert.deepEqual(e1.leaders.map((l) => l.id), ['b']);
+  assert.equal(e1.climbers.length, 3); // alle drei wechseln den Rang
+});
+
+test('roundEvents: nicht existierende/offene Runde ⇒ null', () => {
+  const game = {
+    players: [{ id: 'a', name: 'Anna', seatOrder: 0 }],
+    rounds: [{ index: 0, cardCount: 1, done: false, bids: {}, tricks: {} }],
+  };
+  assert.equal(roundEvents(game, 0), null);
+  assert.equal(roundEvents(game, 5), null);
 });
 
 test('trumpCounts: zählt auch Trumpf offener Runden', () => {

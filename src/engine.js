@@ -298,25 +298,30 @@ export function longestCorrectStreak(game) {
 
 /**
  * Beste & schlechteste Einzelrunden-Punktzahl über alle Spieler/Runden.
+ * Gibt ALLE Einträge zurück, die den Extremwert erreichen (Gleichstand
+ * möglich — z. B. zwei Spieler mit derselben Höchstpunktzahl in
+ * unterschiedlichen Runden), nicht nur den ersten gefundenen.
  * @param {object} game
- * @returns {{ best: {playerId, name, roundIndex, score}|null, worst: {playerId, name, roundIndex, score}|null }}
+ * @returns {{ best: Array<{playerId, name, roundIndex, score}>, worst: Array<{playerId, name, roundIndex, score}> }}
  */
 export function extremeRounds(game) {
-  let best = null;
-  let worst = null;
+  const entries = [];
   for (const round of game.rounds || []) {
     if (!round.done) continue;
     for (const p of game.players) {
       const bid = round.bids?.[p.id];
       const tricks = round.tricks?.[p.id];
       if (bid == null || tricks == null) continue;
-      const score = roundScore(bid, tricks);
-      const entry = { playerId: p.id, name: p.name, roundIndex: round.index, score };
-      if (!best || score > best.score) best = entry;
-      if (!worst || score < worst.score) worst = entry;
+      entries.push({ playerId: p.id, name: p.name, roundIndex: round.index, score: roundScore(bid, tricks) });
     }
   }
-  return { best, worst };
+  if (!entries.length) return { best: [], worst: [] };
+  const maxScore = Math.max(...entries.map((e) => e.score));
+  const minScore = Math.min(...entries.map((e) => e.score));
+  return {
+    best: entries.filter((e) => e.score === maxScore),
+    worst: entries.filter((e) => e.score === minScore),
+  };
 }
 
 /**
@@ -335,6 +340,51 @@ export function trumpCounts(game) {
 }
 
 /**
+ * Bilanz je Spieler in Runden, in denen er den „Malus" der verbotenen
+ * Ansage hatte: als letzter Ansagender (Geber) durfte er nicht frei wählen,
+ * weil ein Wert (0..Kartenzahl) die Summe aller Ansagen exakt hätte
+ * aufgehen lassen. Zählt nur Runden, in denen diese Einschränkung wirklich
+ * griff (`forbiddenBid` ≠ null) — ist `restrictLastBid` aus, gibt es den
+ * Malus nie, die Funktion liefert dann für alle Spieler 0 Runden.
+ * @param {object} game
+ * @returns {Object<string, {rounds:number, correct:number, wrong:number}>}
+ */
+export function malusStats(game) {
+  const stats = {};
+  for (const p of game.players) stats[p.id] = { rounds: 0, correct: 0, wrong: 0 };
+  if (game.restrictLastBid === false) return stats;
+
+  const seated = [...game.players].sort((a, b) => a.seatOrder - b.seatOrder);
+  for (const round of game.rounds || []) {
+    if (!round.done) continue;
+    const order = biddingOrder(seated, round.index);
+    if (!order.length) continue;
+    const dealer = order[order.length - 1];
+
+    let sumOthers = 0;
+    let allOthersBid = true;
+    for (const p of seated) {
+      if (p.id === dealer.id) continue;
+      const b = round.bids?.[p.id];
+      if (b == null) { allOthersBid = false; break; }
+      sumOthers += b;
+    }
+    if (!allOthersBid) continue;
+    if (forbiddenBid(round.cardCount, sumOthers) == null) continue; // keine echte Einschränkung
+
+    const bid = round.bids?.[dealer.id];
+    const tricks = round.tricks?.[dealer.id];
+    if (bid == null || tricks == null) continue;
+
+    const s = stats[dealer.id];
+    s.rounds += 1;
+    if (bid === tricks) s.correct += 1;
+    else s.wrong += 1;
+  }
+  return stats;
+}
+
+/**
  * Summe der eingetragenen Stiche einer Runde — zur Plausibilitätswarnung.
  * Erwartung: Summe == cardCount.
  * @returns {{ sum:number, expected:number, ok:boolean }}
@@ -348,4 +398,84 @@ export function tricksCheck(round) {
 /** Zufällige Trumpffarbe (optionaler "Farbe losen"-Knopf). */
 export function randomTrump() {
   return TRUMP_COLORS[Math.floor(Math.random() * TRUMP_COLORS.length)];
+}
+
+/**
+ * Strukturierte Fakten einer einzelnen fertigen Runde — Grundlage für den
+ * regelbasierten Rundenkommentar (siehe commentary.js). Erzeugt nur Daten,
+ * keinen Text: wer hat wie angesagt/gemacht, wer war Held/Flop der Runde,
+ * wie hat sich dadurch die Platzierung verschoben.
+ * @param {object} game
+ * @param {number} roundIndex
+ * @returns {null | object} null, wenn die Runde nicht existiert/nicht fertig ist
+ */
+export function roundEvents(game, roundIndex) {
+  const round = game.rounds?.[roundIndex];
+  if (!round || !round.done) return null;
+
+  const seated = [...game.players].sort((a, b) => a.seatOrder - b.seatOrder);
+  const order = biddingOrder(seated, roundIndex);
+  const dealer = order[order.length - 1];
+
+  const perPlayer = [];
+  for (const p of game.players) {
+    const bid = round.bids?.[p.id];
+    const tricks = round.tricks?.[p.id];
+    if (bid == null || tricks == null) continue;
+    perPlayer.push({
+      playerId: p.id,
+      name: p.name,
+      bid,
+      tricks,
+      score: roundScore(bid, tricks),
+      correct: bid === tricks,
+    });
+  }
+  if (!perPlayer.length) return null;
+
+  const maxScore = Math.max(...perPlayer.map((e) => e.score));
+  const minScore = Math.min(...perPlayer.map((e) => e.score));
+  const heroes = perPlayer.filter((e) => e.score === maxScore);
+  const villains = perPlayer.filter((e) => e.score === minScore);
+  const correctPlayers = perPlayer.filter((e) => e.correct);
+  const wrongPlayers = perPlayer.filter((e) => !e.correct);
+  const zeroBids = perPlayer.filter((e) => e.bid === 0);
+
+  // Rang davor/danach (geteilte Ränge über kumulierte Punkte).
+  const progression = rankProgression(game);
+  const point = progression.find((pt) => pt.roundIndex === roundIndex);
+  const prevPoint = [...progression].reverse().find((pt) => pt.roundIndex < roundIndex);
+  const ranks = point ? point.ranks : {};
+  const prevRanks = prevPoint ? prevPoint.ranks : {};
+
+  const leaderIds = Object.keys(ranks).filter((id) => ranks[id] === 1).sort();
+  const leaders = game.players.filter((p) => leaderIds.includes(p.id));
+  const prevLeaderIds = Object.keys(prevRanks).filter((id) => prevRanks[id] === 1).sort();
+  const leadChanged = prevPoint != null && JSON.stringify(leaderIds) !== JSON.stringify(prevLeaderIds);
+
+  const climbers = perPlayer
+    .map((e) => ({
+      playerId: e.playerId,
+      name: e.name,
+      prevRank: prevRanks[e.playerId] ?? null,
+      rank: ranks[e.playerId] ?? null,
+    }))
+    .filter((e) => e.prevRank != null && e.rank != null && e.prevRank !== e.rank);
+
+  return {
+    roundIndex,
+    cardCount: round.cardCount,
+    dealerName: dealer?.name,
+    perPlayer,
+    heroes,
+    villains,
+    correctPlayers,
+    wrongPlayers,
+    zeroBids,
+    leaders,
+    leadChanged,
+    climbers,
+    allCorrect: wrongPlayers.length === 0,
+    allWrong: correctPlayers.length === 0,
+  };
 }

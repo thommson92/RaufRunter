@@ -17,6 +17,11 @@ Mobile-first, läuft als statische Seite auf **GitHub Pages**.
   aktuellen Runde (Geber, Ansage-Fortschritt, wer ist dran).
 - **Geber-Auslosung** beim Anlegen eines neuen Spiels: Option „Ersten Geber auslosen" öffnet
   vor dem Start ein echtes Glücksrad, das die Sitzreihenfolge automatisch passend setzt.
+- **Regelbasierter Rundenkommentar** in der Zuschaueransicht: nach jeder fertigen Runde ein
+  launiger Text (Held/Bösewicht der Runde, Nullansagen, Führungswechsel) — ohne KI/Server,
+  reine Textbausteine aus den echten Rundendaten.
+- **Malus-Bilanz:** eigene Statistik, wie Spieler abschneiden, wenn sie als Geber die Ansage
+  nicht frei wählen durften.
 - Installierbar als **PWA** („Zum Startbildschirm"), Oberfläche offline-fähig.
 - Spiel löschen ist durch eine Passwortabfrage geschützt.
 
@@ -42,6 +47,6 @@ Vollständige Spezifikation, Entscheidungs-Log, Tech-Stack und Implementierungsp
 **[docs/SPEZIFIKATION.md](docs/SPEZIFIKATION.md)**.
 
 ## Stand
-M0–M7 fertig: Engine, Schreiber-UI, Firestore-Live-Sync, Zuschauer-View, PWA, Deploy,
-Statistiken/Auswertung und Feinschliff (Geber-Auslosung, Live-Rundenstatus, Lösch-Passwort).
-App ist live. Mögliche Nächstes: echter Zwei-Geräte-Test.
+M0–M8 fertig: Engine, Schreiber-UI, Firestore-Live-Sync, Zuschauer-View, PWA, Deploy,
+Statistiken/Auswertung, Feinschliff (Geber-Auslosung, Live-Rundenstatus, Lösch-Passwort) und
+Rundenkommentar/Malus-Bilanz. App ist live. Mögliche Nächstes: echter Zwei-Geräte-Test.

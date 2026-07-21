@@ -18,9 +18,12 @@ import {
   longestCorrectStreak,
   extremeRounds,
   trumpCounts,
+  malusStats,
+  roundEvents,
 } from './engine.js';
 import { assignSeriesColors, buildScoreChart, buildRankChart, buildBidVsTricksChart } from './charts.js';
 import { buildDealerWheel } from './wheel.js';
+import { generateRoundCommentary } from './commentary.js';
 
 const appEl = document.getElementById('app');
 
@@ -566,16 +569,23 @@ function standingsTable(game) {
     body = roundRows + totalRow;
   }
 
-  const sortLabel = ui.tableSort === 'rank' ? 'Punkte' : 'Sitzreihe';
   return `
     <div class="card">
-      <div class="row spread">
-        <h2 style="margin:0">Punktestand</h2>
-        <div class="btn-row" style="flex:0">
-          <button class="btn-ghost btn-sm" data-action="toggle-sort" style="min-width:auto"
-            title="Sortierung umschalten (Sitzreihe / Punkte)">↕ ${sortLabel}</button>
-          <button class="btn-ghost btn-sm" data-action="toggle-transpose" style="min-width:auto;flex:0"
-            title="Zeilen und Spalten tauschen">⇄</button>
+      <h2 style="margin:0 0 10px">Punktestand</h2>
+      <div class="table-controls">
+        <div>
+          <span class="table-controls-label">Sortieren nach</span>
+          <div class="seg-group">
+            <button class="seg-btn ${ui.tableSort !== 'rank' ? 'active' : ''}" data-action="set-sort" data-v="seat">Sitzreihenfolge</button>
+            <button class="seg-btn ${ui.tableSort === 'rank' ? 'active' : ''}" data-action="set-sort" data-v="rank">Punktestand</button>
+          </div>
+        </div>
+        <div>
+          <span class="table-controls-label">Pro Zeile</span>
+          <div class="seg-group">
+            <button class="seg-btn ${!ui.tableTranspose ? 'active' : ''}" data-action="set-axis" data-v="players">1 Spieler</button>
+            <button class="seg-btn ${ui.tableTranspose ? 'active' : ''}" data-action="set-axis" data-v="rounds">1 Runde</button>
+          </div>
         </div>
       </div>
       <div class="table-wrap"><table>
@@ -728,9 +738,14 @@ function renderViewer() {
     game.rounds.length
   } · nur Ansicht</p>
     ${currentRoundCard(game)}
+    ${commentaryCard(game)}
     ${standingsTable(game)}
     ${statsFactsCard(game)}
+    ${malusCard(game)}
     ${statsChartCards()}
+    <div class="card">
+      <button class="btn-ghost" data-action="open" data-id="${game.id}" style="width:100%">🧑‍💼 Spielleiter-Ansicht</button>
+    </div>
   `;
   scrollTableToLatest();
   mountStatsCharts(game);
@@ -739,11 +754,19 @@ function renderViewer() {
 // ---------- Statistiken (Zuschaueransicht) ----------
 const TRUMP_EMOJI = { Rot: '🔴', Blau: '🔵', Grün: '🟢', Gelb: '🟡' };
 
-/** Bestes & schlechtestes Element einer Liste { value } — für Fakten-Kacheln. */
-function pickExtreme(entries) {
+/**
+ * Bestes & schlechtestes Element einer Liste { name, value } — für Fakten-
+ * Kacheln. Bei Gleichstand werden ALLE Namen am Extremwert genannt, nicht
+ * nur der erstbeste (z. B. zwei Spieler mit derselben Anzahl Ansagen).
+ */
+function extremeGroup(entries) {
   if (!entries.length) return { best: null, worst: null };
-  const sorted = [...entries].sort((a, b) => b.value - a.value);
-  return { best: sorted[0], worst: sorted[sorted.length - 1] };
+  const maxVal = Math.max(...entries.map((e) => e.value));
+  const minVal = Math.min(...entries.map((e) => e.value));
+  return {
+    best: { value: maxVal, names: entries.filter((e) => e.value === maxVal).map((e) => e.name) },
+    worst: { value: minVal, names: entries.filter((e) => e.value === minVal).map((e) => e.name) },
+  };
 }
 
 function statTile(icon, label, value, sub) {
@@ -764,55 +787,106 @@ function statsFactsCard(game) {
   return `<div class="card"><h2>Statistiken</h2>${body}</div>`;
 }
 
+const namesList = (names) => names.map(esc).join(', ');
+
 function statsFacts(game, doneRounds) {
   const acc = accuracyStats(game);
   const totals = bidTrickTotals(game);
   const streaks = longestCorrectStreak(game);
-  const { best: bestRound } = extremeRounds(game);
+  const { best: bestRounds } = extremeRounds(game);
   const trumps = trumpCounts(game);
 
   const accEntries = game.players
     .map((p) => ({ name: p.name, value: acc[p.id].accuracy }))
     .filter((e) => e.value != null);
-  const { best: bestAcc, worst: worstAcc } = pickExtreme(accEntries);
+  const { best: bestAcc, worst: worstAcc } = extremeGroup(accEntries);
 
   const bidEntries = game.players.map((p) => ({ name: p.name, value: totals[p.id].bidSum }));
-  const { best: mostBid, worst: fewestBid } = pickExtreme(bidEntries);
+  const { best: mostBid, worst: fewestBid } = extremeGroup(bidEntries);
 
   const streakEntries = game.players
     .map((p) => ({ name: p.name, value: streaks[p.id] }))
     .filter((e) => e.value > 0);
-  const bestStreak = pickExtreme(streakEntries).best;
+  const bestStreak = extremeGroup(streakEntries).best;
 
-  const topTrump = Object.entries(trumps)
-    .filter(([, n]) => n > 0)
-    .sort((a, b) => b[1] - a[1])[0];
+  const maxTrump = trumps && Object.values(trumps).length ? Math.max(...Object.values(trumps)) : 0;
+  const topTrumpColors = maxTrump > 0 ? Object.keys(trumps).filter((c) => trumps[c] === maxTrump) : [];
 
   const tiles = [];
   if (bestAcc) {
-    tiles.push(statTile('🎯', 'Treffsicherste Ansage', esc(bestAcc.name), `${Math.round(bestAcc.value * 100)}% Treffer`));
+    tiles.push(statTile('🎯', 'Treffsicherste Ansage', namesList(bestAcc.names), `${Math.round(bestAcc.value * 100)}% Treffer`));
   }
   if (worstAcc && worstAcc.value !== bestAcc.value) {
-    tiles.push(statTile('🎲', 'Unsicherste Ansage', esc(worstAcc.name), `${Math.round(worstAcc.value * 100)}% Treffer`));
+    tiles.push(statTile('🎲', 'Unsicherste Ansage', namesList(worstAcc.names), `${Math.round(worstAcc.value * 100)}% Treffer`));
   }
   if (mostBid) {
-    tiles.push(statTile('✋', 'Meiste Stiche angesagt', esc(mostBid.name), `${mostBid.value} insgesamt`));
+    tiles.push(statTile('✋', 'Meiste Stiche angesagt', namesList(mostBid.names), `${mostBid.value} insgesamt`));
   }
   if (fewestBid && fewestBid.value !== mostBid.value) {
-    tiles.push(statTile('🤏', 'Wenigste Stiche angesagt', esc(fewestBid.name), `${fewestBid.value} insgesamt`));
+    tiles.push(statTile('🤏', 'Wenigste Stiche angesagt', namesList(fewestBid.names), `${fewestBid.value} insgesamt`));
   }
   if (bestStreak) {
-    tiles.push(statTile('🔥', 'Längste Treffer-Serie', esc(bestStreak.name), `${bestStreak.value} Runden in Folge`));
+    tiles.push(statTile('🔥', 'Längste Treffer-Serie', namesList(bestStreak.names), `${bestStreak.value} Runden in Folge`));
   }
-  if (bestRound) {
-    const signed = bestRound.score > 0 ? '+' + bestRound.score : String(bestRound.score);
-    tiles.push(statTile('🏆', 'Beste Einzelrunde', esc(bestRound.name), `${signed} Punkte in Runde ${bestRound.roundIndex + 1}`));
+  if (bestRounds.length) {
+    const signed = bestRounds[0].score > 0 ? '+' + bestRounds[0].score : String(bestRounds[0].score);
+    const who = bestRounds.map((e) => `${esc(e.name)} (R${e.roundIndex + 1})`).join(', ');
+    tiles.push(statTile('🏆', 'Beste Einzelrunde', who, `${signed} Punkte`));
   }
-  if (topTrump) {
-    tiles.push(statTile(TRUMP_EMOJI[topTrump[0]] || '🎲', 'Liebste Trumpffarbe', esc(topTrump[0]), `${topTrump[1]}× gelost`));
+  if (topTrumpColors.length) {
+    const icon = topTrumpColors.length === 1 ? TRUMP_EMOJI[topTrumpColors[0]] || '🎲' : '🎲';
+    tiles.push(statTile(icon, 'Liebste Trumpffarbe', namesList(topTrumpColors), `${maxTrump}× gelost`));
   }
 
   return `<div class="stat-grid">${tiles.join('')}</div>`;
+}
+
+/**
+ * Bilanz-Karte: wie schlagen sich Spieler in Runden, in denen sie als Geber
+ * den „Malus" der verbotenen Ansage hatten (nicht frei wählen durften)?
+ * Nur sichtbar, wenn die Regel aktiv ist und mindestens einmal wirklich griff.
+ */
+function malusCard(game) {
+  if (game.restrictLastBid === false) return '';
+  const stats = malusStats(game);
+  const rows = game.players
+    .map((p) => ({ name: p.name, ...stats[p.id] }))
+    .filter((r) => r.rounds > 0)
+    .sort((a, b) => b.rounds - a.rounds);
+  if (!rows.length) return '';
+
+  const body = rows
+    .map((r) => {
+      const pct = Math.round((r.correct / r.rounds) * 100);
+      return `
+        <div class="live-row">
+          <span>${esc(r.name)}</span>
+          <span class="muted" style="font-size:0.85rem">${r.rounds}× Malus · ${r.correct} richtig · ${r.wrong} falsch (${pct}%)</span>
+        </div>`;
+    })
+    .join('');
+
+  return `
+    <div class="card">
+      <h2>Malus-Bilanz</h2>
+      <p class="muted" style="margin:0 0 4px;font-size:0.8rem">Als Geber durfte hier die Ansage nicht frei gewählt werden — wie lief's trotzdem?</p>
+      ${body}
+    </div>`;
+}
+
+/** Regelbasierter „Kommentator"-Text zur zuletzt fertig gespielten Runde. */
+function commentaryCard(game) {
+  const doneIndexes = game.rounds.filter((r) => r.done).map((r) => r.index);
+  if (!doneIndexes.length) return '';
+  const lastIndex = doneIndexes[doneIndexes.length - 1];
+  const events = roundEvents(game, lastIndex);
+  const text = generateRoundCommentary(events);
+  if (!text) return '';
+  return `
+    <div class="card">
+      <h2>🎙️ Rundenkommentar</h2>
+      <p style="margin:0">${esc(text)}</p>
+    </div>`;
 }
 
 function chartCard(title, chartId) {
@@ -908,12 +982,12 @@ async function onClick(e) {
       shareGame(gid);
       break;
 
-    case 'toggle-sort':
-      ui.tableSort = ui.tableSort === 'rank' ? 'seat' : 'rank';
+    case 'set-sort':
+      ui.tableSort = v;
       renderActiveView();
       break;
-    case 'toggle-transpose':
-      ui.tableTranspose = !ui.tableTranspose;
+    case 'set-axis':
+      ui.tableTranspose = v === 'rounds';
       renderActiveView();
       break;
 
