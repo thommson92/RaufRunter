@@ -44,15 +44,20 @@ function pickTickIndices(count, maxTicks = 6) {
   return [...idx].sort((a, b) => a - b);
 }
 
-/** Runde Y-Achsen-Ticks (Vielfaches von 2/5/10 je nach Spannweite). */
-function niceScoreTicks(min, max, count = 4) {
+/**
+ * Runde Y-Achsen-Ticks für den Punkteverlauf. Punktestände bewegen sich in
+ * 10er-Schritten (Rundenpunkte sind immer ±10 + Stiche) — Achsenschritte
+ * bleiben deshalb bei 10, weichen erst bei zu vielen Ticks auf 20 aus und
+ * nutzen 50 nur als Notbremse. Nie gröber als 50 (sonst wirkt z.B. ein
+ * Tick bei -100 irreführend, wenn der niedrigste Wert nur -20 ist).
+ */
+function niceScoreTicks(min, max) {
   let lo = min, hi = max;
-  if (lo === hi) { lo -= 5; hi += 5; }
+  if (lo === hi) { lo -= 10; hi += 10; }
   const span = hi - lo;
-  const rawStep = span / count;
-  const mag = Math.pow(10, Math.floor(Math.log10(rawStep || 1)));
-  const norm = rawStep / mag;
-  const step = (norm < 2 ? 2 : norm < 5 ? 5 : 10) * mag;
+  const maxTicks = 8;
+  const steps = [10, 20, 50];
+  const step = steps.find((s) => span / s <= maxTicks) ?? steps[steps.length - 1];
   const niceMin = Math.floor(lo / step) * step;
   const niceMax = Math.ceil(hi / step) * step;
   const ticks = [];

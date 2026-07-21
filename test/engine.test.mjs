@@ -8,6 +8,7 @@ import {
   allowedBids,
   dealerIndex,
   biddingOrder,
+  rotateSeatOrder,
   standings,
   rankProgression,
   bidTrickTotals,
@@ -117,6 +118,32 @@ test('biddingOrder: Geber sagt zuletzt an, davor im Uhrzeigersinn', () => {
 
 test('biddingOrder: leere Sitzreihenfolge ⇒ leer', () => {
   assert.deepEqual(biddingOrder([], 3), []);
+});
+
+test('rotateSeatOrder: Gewinner wird Sitz 0, Nachbarschaft bleibt erhalten', () => {
+  const seated = [
+    { id: 'a', seatOrder: 0 },
+    { id: 'b', seatOrder: 1 },
+    { id: 'c', seatOrder: 2 },
+    { id: 'd', seatOrder: 3 },
+  ];
+  const rotated = rotateSeatOrder(seated, 2); // c gewinnt die Auslosung
+  assert.deepEqual(rotated.map((p) => p.id), ['c', 'd', 'a', 'b']);
+  assert.deepEqual(rotated.map((p) => p.seatOrder), [0, 1, 2, 3]);
+});
+
+test('rotateSeatOrder: negativer/außerhalb liegender Index wrap-around', () => {
+  const seated = [
+    { id: 'a', seatOrder: 0 },
+    { id: 'b', seatOrder: 1 },
+    { id: 'c', seatOrder: 2 },
+  ];
+  assert.deepEqual(rotateSeatOrder(seated, -1).map((p) => p.id), ['c', 'a', 'b']);
+  assert.deepEqual(rotateSeatOrder(seated, 3).map((p) => p.id), ['a', 'b', 'c']);
+});
+
+test('rotateSeatOrder: leere Liste ⇒ leer', () => {
+  assert.deepEqual(rotateSeatOrder([], 0), []);
 });
 
 test('standings: Summen, Verlauf und geteilte Ränge', () => {

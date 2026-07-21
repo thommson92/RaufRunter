@@ -13,8 +13,12 @@ Mobile-first, läuft als statische Seite auf **GitHub Pages**.
 - Zuschauer-Link (read-only), **geräteübergreifend live** über Firestore.
 - **Statistiken in der Zuschaueransicht:** Fakten-Kacheln (Trefferquote, meiste/wenigste
   Ansagen, Treffer-Serie, beste Einzelrunde, häufigste Trumpffarbe) + Charts
-  (Punkteverlauf, Platzierungsverlauf, Angesagt vs. gemacht).
+  (Punkteverlauf, Platzierungsverlauf, Angesagt vs. gemacht) sowie ein Live-Panel zur
+  aktuellen Runde (Geber, Ansage-Fortschritt, wer ist dran).
+- **Geber-Auslosung** („Glücksrad") in der Spieler-Ansicht: lost aus, wer zuerst gibt,
+  und passt die Sitzreihenfolge automatisch an.
 - Installierbar als **PWA** („Zum Startbildschirm"), Oberfläche offline-fähig.
+- Spiel löschen ist durch eine Passwortabfrage geschützt.
 
 **Live:** <https://thommson92.github.io/RaufRunter/>
 
@@ -38,5 +42,6 @@ Vollständige Spezifikation, Entscheidungs-Log, Tech-Stack und Implementierungsp
 **[docs/SPEZIFIKATION.md](docs/SPEZIFIKATION.md)**.
 
 ## Stand
-M0–M6 fertig: Engine, Schreiber-UI, Firestore-Live-Sync, Zuschauer-View, PWA, Deploy und
-Statistiken/Auswertung. App ist live. Mögliche Nächstes: echter Zwei-Geräte-Test, Feinschliff.
+M0–M7 fertig: Engine, Schreiber-UI, Firestore-Live-Sync, Zuschauer-View, PWA, Deploy,
+Statistiken/Auswertung und Feinschliff (Geber-Auslosung, Live-Rundenstatus, Lösch-Passwort).
+App ist live. Mögliche Nächstes: echter Zwei-Geräte-Test.

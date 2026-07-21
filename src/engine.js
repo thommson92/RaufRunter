@@ -88,6 +88,27 @@ export function biddingOrder(seated, roundIndex) {
 }
 
 /**
+ * Rotiert die Sitzreihenfolge so, dass der Spieler an `startIndex` künftig
+ * als Erster gibt (Runde 0 → `dealerIndex(0,n) = 0`). Die Nachbarschaft am
+ * Tisch bleibt erhalten — es verschiebt sich nur, wer als Sitz 0 zählt.
+ * Für's Auslosen des ersten Gebers.
+ * @template {{seatOrder:number}} T
+ * @param {T[]} seated     Spieler in aktueller Sitzreihenfolge (aufsteigend)
+ * @param {number} startIndex  Index in `seated`, der neu Sitz 0 wird
+ * @returns {T[]} neue Reihenfolge; `seatOrder` der übergebenen Objekte wird aktualisiert (0..n-1)
+ */
+export function rotateSeatOrder(seated, startIndex) {
+  const n = seated.length;
+  if (n === 0) return [];
+  const start = ((Math.floor(startIndex) % n) + n) % n;
+  const rotated = [...seated.slice(start), ...seated.slice(0, start)];
+  rotated.forEach((p, i) => {
+    p.seatOrder = i;
+  });
+  return rotated;
+}
+
+/**
  * Welche Ansage-Werte (0..cardCount) darf ein Spieler wählen?
  * Nur der letzte Spieler ist eingeschränkt.
  * @param {object} p

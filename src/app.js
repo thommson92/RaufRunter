@@ -8,6 +8,7 @@ import {
   standings,
   allowedBids,
   biddingOrder,
+  rotateSeatOrder,
   tricksCheck,
   randomTrump,
   totalRounds,
@@ -28,7 +29,15 @@ const ui = {
   activeRound: null,  // welche Runde im Eingabe-Panel offen ist
   tableSort: 'seat',  // Punktestand-Sortierung: 'seat' (Sitzreihe) | 'rank' (Punkte)
   tableTranspose: false, // Achsen tauschen: false = Spieler-Zeilen, true = Runden-Zeilen
+  lotteryMessage: null, // { text, ts } nach der Geber-Auslosung — zeitbasiert statt
+                        // "einmalig anzeigen", weil saveCurrent() zweimal rendert
+                        // (optimistisch, dann per Live-Abo bestätigt) und ein simples
+                        // Read-and-Clear die Meldung schon vorm zweiten Render löschen würde.
 };
+
+// Nur eine einfache Hürde gegen versehentliches Löschen, keine echte Auth —
+// bewusst im Client hinterlegt.
+const DELETE_PASSWORD = 'Leclec';
 
 // Aktuell abonniertes Spiel (Live-Cache aus Firestore).
 //   game === undefined  -> lädt noch
@@ -148,11 +157,14 @@ async function renderHome() {
           const done = g.rounds.filter((r) => r.done).length;
           const total = g.rounds.length;
           const lead = standings(g).ranking[0];
+          const date = g.createdAt
+            ? new Date(g.createdAt).toLocaleDateString('de-DE')
+            : null;
           return `
             <button class="card list-item" data-action="open" data-id="${g.id}">
               <div class="meta">
                 <strong>${esc(g.name)}</strong><br/>
-                <small>${g.players.length} Spieler · Runde ${Math.min(done + 1, total)}/${total}${
+                <small>${date ? `${date} · ` : ''}${g.players.length} Spieler · Runde ${Math.min(done + 1, total)}/${total}${
             done === total ? ' · fertig' : ''
           }${lead && done ? ` · 🥇 ${esc(lead.name)}` : ''}</small>
               </div>
@@ -168,7 +180,7 @@ async function renderHome() {
     <div class="card center" style="border-style:dashed">
       <button class="btn-primary" data-action="new" style="width:100%">+ Neues Spiel</button>
     </div>
-    <p class="center muted" style="font-size:0.8rem">10 rauf, 10 runter — Punkte-App</p>
+    <p class="center muted" style="font-size:0.8rem">Rauf & Runter – Punkte App · © ${new Date().getFullYear()} Thomas Kellner</p>
   `;
 }
 
@@ -246,7 +258,7 @@ function renderPlayers() {
   const rows = seated
     .map(
       (p, i) => `
-      <div class="player-row">
+      <div class="player-row" data-pid="${p.id}">
         <span class="seat">${i + 1}</span>
         <input data-edit-name="${p.id}" value="${esc(p.name)}" />
         <button class="icon-btn btn-ghost" data-action="seat-up" data-pid="${p.id}" ${
@@ -259,6 +271,9 @@ function renderPlayers() {
     )
     .join('');
 
+  const lotteryMsg =
+    ui.lotteryMessage && Date.now() - ui.lotteryMessage.ts < 4000 ? ui.lotteryMessage.text : null;
+
   appEl.innerHTML = `
     <div class="topbar">
       <button class="icon-btn btn-ghost" data-action="open" data-id="${game.id}">‹</button>
@@ -267,9 +282,59 @@ function renderPlayers() {
     <div class="card">
       <p class="muted" style="margin-top:0">Reihenfolge per ▲▼ ändern, Namen direkt bearbeiten. Punkte bleiben erhalten.</p>
       ${rows}
+      <button class="btn-ghost" data-action="lots-dealer" style="width:100%;margin-top:14px" ${
+        seated.length < 2 ? 'disabled' : ''
+      }>🎡 Auslosen: Wer gibt zuerst?</button>
+      ${lotteryMsg ? `<p class="lottery-result">${esc(lotteryMsg)}</p>` : ''}
     </div>
     <button class="btn-primary" data-action="open" data-id="${game.id}" style="width:100%">Fertig</button>
   `;
+}
+
+/** Startet die Glücksrad-Animation und lost aus, wer künftig zuerst gibt. */
+function startDealerLottery() {
+  const game = current.game;
+  if (!game) return;
+  const seated = seatSorted(game);
+  const rows = [...appEl.querySelectorAll('.player-row')];
+  if (seated.length < 2 || rows.length !== seated.length) return;
+
+  const btn = appEl.querySelector('[data-action="lots-dealer"]');
+  if (btn) btn.disabled = true;
+
+  const n = seated.length;
+  const winner = Math.floor(Math.random() * n);
+  const fullLoops = 3;
+  const totalTicks = fullLoops * n + winner + 1; // letzter Tick landet auf winner
+
+  let tick = 0;
+  let delay = 80;
+
+  function highlight(idx) {
+    rows.forEach((r, i) => r.classList.toggle('lottery-active', i === idx));
+  }
+
+  function step() {
+    highlight(tick % n);
+    tick++;
+    if (tick >= totalTicks) {
+      rows.forEach((r) => r.classList.remove('lottery-active'));
+      rows[winner].classList.add('lottery-winner');
+      setTimeout(() => finishDealerLottery(seated, winner), 900);
+      return;
+    }
+    const remaining = totalTicks - tick;
+    if (remaining <= n) delay += 45; // letzte Umdrehung abbremsen
+    else if (remaining <= n * 2) delay += 12;
+    setTimeout(step, delay);
+  }
+  step();
+}
+
+function finishDealerLottery(seated, winnerIndex) {
+  const rotated = rotateSeatOrder(seated, winnerIndex);
+  ui.lotteryMessage = { text: `🎉 ${rotated[0].name} gibt als Erstes!`, ts: Date.now() };
+  saveCurrent();
 }
 
 function entryPanel(game) {
@@ -435,8 +500,8 @@ function standingsTable(game) {
     head = `
       <tr>
         <th class="name">Spieler</th>
-        ${doneRounds.map((r) => `<th>R${r.index + 1}</th>`).join('')}
-        <th>Gesamt</th>
+        ${doneRounds.map((r) => `<th title="Runde ${r.index + 1}">${r.cardCount}</th>`).join('')}
+        <th class="sticky-right">Gesamt</th>
       </tr>`;
     body = players
       .map((p) => {
@@ -447,7 +512,7 @@ function standingsTable(game) {
         <tr>
           <td class="name ${isLeader(p.id) ? 'rank-1' : ''}">${nameCell(p)}</td>
           ${cells}
-          <td class="total">${fmtScore(byPlayer[p.id].total)}</td>
+          <td class="total sticky-right">${fmtScore(byPlayer[p.id].total)}</td>
         </tr>`;
       })
       .join('');
@@ -455,7 +520,7 @@ function standingsTable(game) {
     // Layout B: Runden = Zeilen, Spieler = Spalten (Achsen getauscht)
     head = `
       <tr>
-        <th class="name">Runde</th>
+        <th class="name">Karten</th>
         ${players
           .map(
             (p) => `<th class="${isLeader(p.id) ? 'rank-1' : ''}">${nameCell(p)}</th>`,
@@ -469,7 +534,7 @@ function standingsTable(game) {
           .join('');
         return `
         <tr>
-          <td class="name">R${r.index + 1}</td>
+          <td class="name" title="Runde ${r.index + 1}">${r.cardCount}</td>
           ${cells}
         </tr>`;
       })
@@ -508,6 +573,98 @@ function standingsTable(game) {
     </div>`;
 }
 
+// Scrollt die Punktestand-Tabelle immer ganz nach rechts (aktuellste Runde) —
+// nur relevant für Layout A, wo Runden als Spalten nach rechts wachsen.
+function scrollTableToLatest() {
+  if (ui.tableTranspose) return;
+  const wrap = appEl.querySelector('.table-wrap');
+  if (wrap) wrap.scrollLeft = wrap.scrollWidth;
+}
+
+/**
+ * Live-Status der aktuell laufenden Runde für die Zuschaueransicht: Geber &
+ * Kartenzahl, wer bereits angesagt hat (und was), wie viele Stiche noch
+ * offen/schon zu viel angesagt sind, wer als Nächstes dran ist — bzw. sobald
+ * alle angesagt haben: wer schon Stiche eingetragen hat.
+ */
+function currentRoundCard(game) {
+  const idx = game.rounds.findIndex((r) => !r.done);
+  if (idx === -1) return '';
+  const round = game.rounds[idx];
+  const seated = seatSorted(game);
+  const order = biddingOrder(seated, idx);
+  const dealer = order[order.length - 1];
+  const cc = round.cardCount;
+  const trump = round.trump;
+  const allBids = order.every((p) => round.bids[p.id] != null);
+  const nextBidder = order.find((p) => round.bids[p.id] == null);
+
+  let bidSum = 0;
+  const bidRows = order
+    .map((p) => {
+      const has = round.bids[p.id] != null;
+      if (has) bidSum += round.bids[p.id];
+      const isNext = !has && nextBidder && p.id === nextBidder.id;
+      const status = has
+        ? `<span class="pill">angesagt: ${round.bids[p.id]}</span>`
+        : isNext
+          ? '<span class="pill pill-next">ist dran</span>'
+          : '<span class="muted" style="font-size:0.8rem">wartet</span>';
+      return `
+        <div class="live-row ${has ? 'live-row-done' : isNext ? 'live-row-next' : 'live-row-waiting'}">
+          <span>${esc(p.name)}${p.id === dealer.id ? ' 🃏' : ''}</span>
+          ${status}
+        </div>`;
+    })
+    .join('');
+
+  const remaining = cc - bidSum;
+  const bidSummary = allBids
+    ? ''
+    : remaining >= 0
+      ? `<p class="muted" style="margin:8px 0 0">Noch offen: <strong>${remaining}</strong> von ${cc}</p>`
+      : `<p class="muted" style="margin:8px 0 0">Bereits <strong>${Math.abs(remaining)}</strong> mehr angesagt als Karten (${cc})</p>`;
+
+  let tricksBlock = '';
+  if (allBids) {
+    let trickSum = 0;
+    const trickRows = order
+      .map((p) => {
+        const has = round.tricks[p.id] != null;
+        if (has) trickSum += round.tricks[p.id];
+        return `
+          <div class="live-row ${has ? 'live-row-done' : 'live-row-waiting'}">
+            <span>${esc(p.name)}</span>
+            ${
+              has
+                ? `<span class="pill">Stiche: ${round.tricks[p.id]}</span>`
+                : '<span class="muted" style="font-size:0.8rem">wartet</span>'
+            }
+          </div>`;
+      })
+      .join('');
+    tricksBlock = `
+      <h3 style="margin-top:16px">Gemachte Stiche</h3>
+      ${trickRows}
+      <p class="muted" style="margin:8px 0 0">Bisher gemacht: <strong>${trickSum}</strong> von ${cc}</p>`;
+  }
+
+  return `
+    <div class="card">
+      <div class="row spread">
+        <h2 style="margin:0">Aktuelle Runde</h2>
+        <span class="pill">${cc} ${cc === 1 ? 'Karte' : 'Karten'}</span>
+      </div>
+      <p class="muted" style="margin:6px 0 0;font-size:0.85rem">🃏 ${esc(dealer.name)} gibt${
+    trump ? ` · <span class="trump"><span class="dot dot-${trump}"></span>${trump}</span>` : ''
+  }</p>
+      <h3 style="margin-top:16px">Ansagen</h3>
+      ${bidRows}
+      ${bidSummary}
+      ${tricksBlock}
+    </div>`;
+}
+
 function renderScorer() {
   const game = current.game;
   if (game === undefined) return renderLoading('Lade Spiel …');
@@ -536,6 +693,7 @@ function renderScorer() {
       </div>
     </div>
   `;
+  scrollTableToLatest();
 }
 
 function renderViewer() {
@@ -552,10 +710,12 @@ function renderViewer() {
     <p class="muted progress" style="margin-top:0">Runde ${Math.min(done + 1, game.rounds.length)}/${
     game.rounds.length
   } · nur Ansicht</p>
+    ${currentRoundCard(game)}
     ${standingsTable(game)}
     ${statsFactsCard(game)}
     ${statsChartCards()}
   `;
+  scrollTableToLatest();
   mountStatsCharts(game);
 }
 
@@ -804,6 +964,10 @@ async function onClick(e) {
       break;
     }
 
+    case 'lots-dealer':
+      startDealerLottery();
+      break;
+
     case 'set-bid':
     case 'set-trick': {
       if (!game) break;
@@ -846,16 +1010,21 @@ async function onClick(e) {
 
     case 'delete': {
       if (!game) break;
-      if (confirm(`„${game.name}" wirklich löschen?`)) {
-        try {
-          await fb.deleteGame(gid);
-        } catch (err) {
-          console.error(err);
-          return alert('Löschen fehlgeschlagen – bist du online?');
-        }
-        ui.activeRound = null;
-        navigate('/');
+      if (!confirm(`„${game.name}" wirklich löschen?`)) break;
+      const pw = prompt('Zum Löschen bitte Passwort eingeben:');
+      if (pw === null) break; // abgebrochen
+      if (pw !== DELETE_PASSWORD) {
+        alert('Falsches Passwort – Spiel wurde nicht gelöscht.');
+        break;
       }
+      try {
+        await fb.deleteGame(gid);
+      } catch (err) {
+        console.error(err);
+        return alert('Löschen fehlgeschlagen – bist du online?');
+      }
+      ui.activeRound = null;
+      navigate('/');
       break;
     }
   }
