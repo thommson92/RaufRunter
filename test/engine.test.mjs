@@ -8,7 +8,7 @@ import {
   allowedBids,
   dealerIndex,
   biddingOrder,
-  rotateSeatOrder,
+  rotateToStart,
   standings,
   rankProgression,
   bidTrickTotals,
@@ -120,30 +120,28 @@ test('biddingOrder: leere Sitzreihenfolge ⇒ leer', () => {
   assert.deepEqual(biddingOrder([], 3), []);
 });
 
-test('rotateSeatOrder: Gewinner wird Sitz 0, Nachbarschaft bleibt erhalten', () => {
-  const seated = [
-    { id: 'a', seatOrder: 0 },
-    { id: 'b', seatOrder: 1 },
-    { id: 'c', seatOrder: 2 },
-    { id: 'd', seatOrder: 3 },
-  ];
-  const rotated = rotateSeatOrder(seated, 2); // c gewinnt die Auslosung
-  assert.deepEqual(rotated.map((p) => p.id), ['c', 'd', 'a', 'b']);
-  assert.deepEqual(rotated.map((p) => p.seatOrder), [0, 1, 2, 3]);
+test('rotateToStart: Gewinner rückt an Position 0, Nachbarschaft bleibt erhalten', () => {
+  const names = ['a', 'b', 'c', 'd'];
+  assert.deepEqual(rotateToStart(names, 2), ['c', 'd', 'a', 'b']); // c gewinnt die Auslosung
 });
 
-test('rotateSeatOrder: negativer/außerhalb liegender Index wrap-around', () => {
-  const seated = [
-    { id: 'a', seatOrder: 0 },
-    { id: 'b', seatOrder: 1 },
-    { id: 'c', seatOrder: 2 },
-  ];
-  assert.deepEqual(rotateSeatOrder(seated, -1).map((p) => p.id), ['c', 'a', 'b']);
-  assert.deepEqual(rotateSeatOrder(seated, 3).map((p) => p.id), ['a', 'b', 'c']);
+test('rotateToStart: negativer/außerhalb liegender Index wrap-around', () => {
+  const names = ['a', 'b', 'c'];
+  assert.deepEqual(rotateToStart(names, -1), ['c', 'a', 'b']);
+  assert.deepEqual(rotateToStart(names, 3), ['a', 'b', 'c']);
 });
 
-test('rotateSeatOrder: leere Liste ⇒ leer', () => {
-  assert.deepEqual(rotateSeatOrder([], 0), []);
+test('rotateToStart: leere Liste ⇒ leer', () => {
+  assert.deepEqual(rotateToStart([], 0), []);
+});
+
+test('rotateToStart: mutiert die Eingabe nicht, Elemente bleiben dieselben Referenzen', () => {
+  const a = { id: 'a' };
+  const b = { id: 'b' };
+  const seated = [a, b];
+  const rotated = rotateToStart(seated, 1);
+  assert.deepEqual(seated, [a, b]); // Original unverändert
+  assert.equal(rotated[0], b); // gleiche Objektreferenz, keine Kopie
 });
 
 test('standings: Summen, Verlauf und geteilte Ränge', () => {

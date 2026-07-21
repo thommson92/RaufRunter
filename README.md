@@ -15,8 +15,8 @@ Mobile-first, läuft als statische Seite auf **GitHub Pages**.
   Ansagen, Treffer-Serie, beste Einzelrunde, häufigste Trumpffarbe) + Charts
   (Punkteverlauf, Platzierungsverlauf, Angesagt vs. gemacht) sowie ein Live-Panel zur
   aktuellen Runde (Geber, Ansage-Fortschritt, wer ist dran).
-- **Geber-Auslosung** („Glücksrad") in der Spieler-Ansicht: lost aus, wer zuerst gibt,
-  und passt die Sitzreihenfolge automatisch an.
+- **Geber-Auslosung** beim Anlegen eines neuen Spiels: Option „Ersten Geber auslosen" öffnet
+  vor dem Start ein echtes Glücksrad, das die Sitzreihenfolge automatisch passend setzt.
 - Installierbar als **PWA** („Zum Startbildschirm"), Oberfläche offline-fähig.
 - Spiel löschen ist durch eine Passwortabfrage geschützt.
 

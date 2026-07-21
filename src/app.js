@@ -8,7 +8,7 @@ import {
   standings,
   allowedBids,
   biddingOrder,
-  rotateSeatOrder,
+  rotateToStart,
   tricksCheck,
   randomTrump,
   totalRounds,
@@ -20,6 +20,7 @@ import {
   trumpCounts,
 } from './engine.js';
 import { assignSeriesColors, buildScoreChart, buildRankChart, buildBidVsTricksChart } from './charts.js';
+import { buildDealerWheel } from './wheel.js';
 
 const appEl = document.getElementById('app');
 
@@ -29,10 +30,7 @@ const ui = {
   activeRound: null,  // welche Runde im Eingabe-Panel offen ist
   tableSort: 'seat',  // Punktestand-Sortierung: 'seat' (Sitzreihe) | 'rank' (Punkte)
   tableTranspose: false, // Achsen tauschen: false = Spieler-Zeilen, true = Runden-Zeilen
-  lotteryMessage: null, // { text, ts } nach der Geber-Auslosung — zeitbasiert statt
-                        // "einmalig anzeigen", weil saveCurrent() zweimal rendert
-                        // (optimistisch, dann per Live-Abo bestätigt) und ein simples
-                        // Read-and-Clear die Meldung schon vorm zweiten Render löschen würde.
+  lottery: null, // { names, winner } während der Geber-Auslosung beim Anlegen (#/new)
 };
 
 // Nur eine einfache Hürde gegen versehentliches Löschen, keine echte Auth —
@@ -195,8 +193,16 @@ function ensureSuggestions(d) {
 }
 
 function renderNew() {
+  if (ui.lottery) return renderDealerLottery();
   if (!ui.draft) {
-    ui.draft = { name: '', maxCards: 7, players: ['', ''], restrictLastBid: true, upOnly: false };
+    ui.draft = {
+      name: '',
+      maxCards: 7,
+      players: ['', ''],
+      restrictLastBid: true,
+      upOnly: false,
+      rollDealer: false,
+    };
   }
   const d = ui.draft;
   ensureSuggestions(d);
@@ -245,9 +251,73 @@ function renderNew() {
       <p class="muted" style="margin:6px 0 4px;font-size:0.8rem">Tipp: 🎲 setzt einen lustigen Namen ein – oder eigene eintippen.</p>
       ${playerInputs}
       <button class="btn-ghost btn-sm" data-action="add-player" style="margin-top:10px">+ Spieler</button>
+      <label class="check-row">
+        <input type="checkbox" data-field="rollDealer" ${d.rollDealer ? 'checked' : ''} />
+        <span>Ersten Geber auslosen (Glücksrad)</span>
+      </label>
+      <small class="muted">Vor dem Start entscheidet ein Glücksrad, wer in Runde 1 gibt.</small>
     </div>
     <button class="btn-primary" data-action="start" style="width:100%">Spiel starten</button>
   `;
+}
+
+/** Zwischenschritt vorm Anlegen: Glücksrad lost aus, wer zuerst gibt. */
+function renderDealerLottery() {
+  const { names } = ui.lottery;
+  appEl.innerHTML = `
+    <div class="topbar">
+      <button class="icon-btn btn-ghost" data-action="lottery-cancel">‹</button>
+      <h1>Wer gibt zuerst?</h1>
+    </div>
+    <div class="card center" id="lottery-card">
+      <p class="muted" style="margin-top:0">Dreh das Rad – wer getroffen wird, gibt in Runde 1.</p>
+      <div id="wheel-mount"></div>
+    </div>
+  `;
+  document.getElementById('wheel-mount').appendChild(buildDealerWheel(names, onWheelSettled));
+}
+
+/** Callback des Glücksrads, sobald es steht: Ergebnis anzeigen, Spiel noch nicht anlegen. */
+function onWheelSettled(winnerIndex) {
+  if (!ui.lottery || currentRoute().view !== 'new') return; // inzwischen weggenavigiert
+  ui.lottery.winner = winnerIndex;
+  const card = document.getElementById('lottery-card');
+  if (!card) return;
+
+  const p = document.createElement('p');
+  p.className = 'lottery-result';
+  p.textContent = `🎉 ${ui.lottery.names[winnerIndex]} gibt als Erstes!`;
+
+  const btn = document.createElement('button');
+  btn.className = 'btn-primary';
+  btn.style.width = '100%';
+  btn.style.marginTop = '10px';
+  btn.textContent = 'Weiter zum Spiel';
+  btn.dataset.action = 'lottery-continue';
+
+  card.append(p, btn);
+}
+
+/** Legt das Spiel an (mit gegebener Spielerreihenfolge), speichert & navigiert hin. */
+async function createAndEnterGame(playerNames) {
+  const newGame = createGame({
+    name: ui.draft.name,
+    maxCards: ui.draft.maxCards,
+    playerNames,
+    restrictLastBid: ui.draft.restrictLastBid !== false,
+    upOnly: ui.draft.upOnly === true,
+  });
+  try {
+    await fb.saveGame(newGame);
+  } catch (err) {
+    console.error(err);
+    alert('Spiel konnte nicht angelegt werden – bist du online?');
+    return;
+  }
+  ui.draft = null;
+  ui.lottery = null;
+  ui.activeRound = null;
+  navigate('/game/' + newGame.id);
 }
 
 function renderPlayers() {
@@ -271,9 +341,6 @@ function renderPlayers() {
     )
     .join('');
 
-  const lotteryMsg =
-    ui.lotteryMessage && Date.now() - ui.lotteryMessage.ts < 4000 ? ui.lotteryMessage.text : null;
-
   appEl.innerHTML = `
     <div class="topbar">
       <button class="icon-btn btn-ghost" data-action="open" data-id="${game.id}">‹</button>
@@ -282,59 +349,9 @@ function renderPlayers() {
     <div class="card">
       <p class="muted" style="margin-top:0">Reihenfolge per ▲▼ ändern, Namen direkt bearbeiten. Punkte bleiben erhalten.</p>
       ${rows}
-      <button class="btn-ghost" data-action="lots-dealer" style="width:100%;margin-top:14px" ${
-        seated.length < 2 ? 'disabled' : ''
-      }>🎡 Auslosen: Wer gibt zuerst?</button>
-      ${lotteryMsg ? `<p class="lottery-result">${esc(lotteryMsg)}</p>` : ''}
     </div>
     <button class="btn-primary" data-action="open" data-id="${game.id}" style="width:100%">Fertig</button>
   `;
-}
-
-/** Startet die Glücksrad-Animation und lost aus, wer künftig zuerst gibt. */
-function startDealerLottery() {
-  const game = current.game;
-  if (!game) return;
-  const seated = seatSorted(game);
-  const rows = [...appEl.querySelectorAll('.player-row')];
-  if (seated.length < 2 || rows.length !== seated.length) return;
-
-  const btn = appEl.querySelector('[data-action="lots-dealer"]');
-  if (btn) btn.disabled = true;
-
-  const n = seated.length;
-  const winner = Math.floor(Math.random() * n);
-  const fullLoops = 3;
-  const totalTicks = fullLoops * n + winner + 1; // letzter Tick landet auf winner
-
-  let tick = 0;
-  let delay = 80;
-
-  function highlight(idx) {
-    rows.forEach((r, i) => r.classList.toggle('lottery-active', i === idx));
-  }
-
-  function step() {
-    highlight(tick % n);
-    tick++;
-    if (tick >= totalTicks) {
-      rows.forEach((r) => r.classList.remove('lottery-active'));
-      rows[winner].classList.add('lottery-winner');
-      setTimeout(() => finishDealerLottery(seated, winner), 900);
-      return;
-    }
-    const remaining = totalTicks - tick;
-    if (remaining <= n) delay += 45; // letzte Umdrehung abbremsen
-    else if (remaining <= n * 2) delay += 12;
-    setTimeout(step, delay);
-  }
-  step();
-}
-
-function finishDealerLottery(seated, winnerIndex) {
-  const rotated = rotateSeatOrder(seated, winnerIndex);
-  ui.lotteryMessage = { text: `🎉 ${rotated[0].name} gibt als Erstes!`, ts: Date.now() };
-  saveCurrent();
 }
 
 function entryPanel(game) {
@@ -840,6 +857,8 @@ function readDraftFromInputs() {
   if (restrict) ui.draft.restrictLastBid = restrict.checked;
   const playDown = appEl.querySelector('[data-field="playDown"]');
   if (playDown) ui.draft.upOnly = !playDown.checked;
+  const rollDealer = appEl.querySelector('[data-field="rollDealer"]');
+  if (rollDealer) ui.draft.rollDealer = rollDealer.checked;
   appEl.querySelectorAll('[data-pname]').forEach((inp) => {
     ui.draft.players[+inp.dataset.pname] = inp.value;
   });
@@ -930,22 +949,24 @@ async function onClick(e) {
       readDraftFromInputs();
       const names = ui.draft.players.map((n) => n.trim()).filter(Boolean);
       if (names.length < 2) return alert('Bitte mindestens 2 Spieler eintragen.');
-      const newGame = createGame({
-        name: ui.draft.name,
-        maxCards: ui.draft.maxCards,
-        playerNames: names,
-        restrictLastBid: ui.draft.restrictLastBid !== false,
-        upOnly: ui.draft.upOnly === true,
-      });
-      try {
-        await fb.saveGame(newGame);
-      } catch (err) {
-        console.error(err);
-        return alert('Spiel konnte nicht angelegt werden – bist du online?');
+      if (ui.draft.rollDealer) {
+        ui.lottery = { names, winner: null };
+        renderNew();
+        break;
       }
-      ui.draft = null;
-      ui.activeRound = null;
-      navigate('/game/' + newGame.id);
+      await createAndEnterGame(names);
+      break;
+    }
+
+    case 'lottery-cancel':
+      ui.lottery = null;
+      renderNew();
+      break;
+
+    case 'lottery-continue': {
+      if (!ui.lottery || ui.lottery.winner == null) break;
+      const ordered = rotateToStart(ui.lottery.names, ui.lottery.winner);
+      await createAndEnterGame(ordered);
       break;
     }
 
@@ -963,10 +984,6 @@ async function onClick(e) {
       saveCurrent();
       break;
     }
-
-    case 'lots-dealer':
-      startDealerLottery();
-      break;
 
     case 'set-bid':
     case 'set-trick': {

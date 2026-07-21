@@ -88,24 +88,23 @@ export function biddingOrder(seated, roundIndex) {
 }
 
 /**
- * Rotiert die Sitzreihenfolge so, dass der Spieler an `startIndex` künftig
- * als Erster gibt (Runde 0 → `dealerIndex(0,n) = 0`). Die Nachbarschaft am
- * Tisch bleibt erhalten — es verschiebt sich nur, wer als Sitz 0 zählt.
- * Für's Auslosen des ersten Gebers.
- * @template {{seatOrder:number}} T
- * @param {T[]} seated     Spieler in aktueller Sitzreihenfolge (aufsteigend)
- * @param {number} startIndex  Index in `seated`, der neu Sitz 0 wird
- * @returns {T[]} neue Reihenfolge; `seatOrder` der übergebenen Objekte wird aktualisiert (0..n-1)
+ * Rotiert ein Array so, dass das Element an `startIndex` künftig an Position 0
+ * steht — die relative Reihenfolge/Nachbarschaft der übrigen Elemente bleibt
+ * erhalten, es verschiebt sich nur der Startpunkt. Fürs Auslosen des ersten
+ * Gebers (Runde 0 → `dealerIndex(0,n) = 0`): sowohl auf eine Namensliste beim
+ * Anlegen als auch auf eine Sitzreihenfolge anwendbar — mutiert nichts, die
+ * aufrufende Seite entscheidet, was mit der neuen Reihenfolge passiert
+ * (z. B. `seatOrder` neu zuweisen).
+ * @template T
+ * @param {T[]} list        Elemente in aktueller Reihenfolge
+ * @param {number} startIndex  Index in `list`, der neu Position 0 wird
+ * @returns {T[]} neu geordnetes Array (gleiche Elemente, keine Kopien)
  */
-export function rotateSeatOrder(seated, startIndex) {
-  const n = seated.length;
+export function rotateToStart(list, startIndex) {
+  const n = list.length;
   if (n === 0) return [];
   const start = ((Math.floor(startIndex) % n) + n) % n;
-  const rotated = [...seated.slice(start), ...seated.slice(0, start)];
-  rotated.forEach((p, i) => {
-    p.seatOrder = i;
-  });
-  return rotated;
+  return [...list.slice(start), ...list.slice(0, start)];
 }
 
 /**
