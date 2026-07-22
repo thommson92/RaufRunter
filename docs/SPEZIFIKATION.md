@@ -176,6 +176,58 @@ docs/SPEZIFIKATION.md   dieses Dokument
 - `standings(game)` → `{ byPlayer, ranking }` (Summen, Verlauf, geteilte Ränge)
 - `tricksCheck(round)` → Plausibilität (Summe Stiche == Kartenzahl)
 - `randomTrump()` / `TRUMP_COLORS`
+- **Statistiken (M6):** `rankProgression(game)` (kumulierter Punktestand & geteilter Rang je fertiger Runde),
+  `bidTrickTotals(game)` (Summe Ansagen/Stiche je Spieler), `accuracyStats(game)` (Trefferquote),
+  `longestCorrectStreak(game)`, `extremeRounds(game)` (beste/schlechteste Einzelrunde — gibt
+  **alle** Einträge am Extremwert zurück, nicht nur den ersten), `trumpCounts(game)` (Häufigkeit
+  geloster Trumpffarben)
+- **Geber-Auslosung (M7):** `rotateToStart(list, startIndex)` — rotiert ein Array (Namen oder
+  Spieler) so, dass das Element an `startIndex` künftig an Position 0 steht; Nachbarschaft/
+  relative Reihenfolge bleibt erhalten, mutiert nichts.
+- **Malus & Rundenkommentar (M8, Bilanz überarbeitet in M10):** `dealerMalusStats(game)` — Bilanz
+  je Spieler, wie oft er Geber (letzter Ansagender) war, aufgeteilt in `neutral` (Malus griff
+  diese Runde gar nicht wirklich, `forbiddenBid` = null oder `restrictLastBid` aus),
+  `malusCorrect` (Malus griff, trotzdem richtig) und `malusWrong` (Malus griff, falsch gelegen);
+  `dealerRounds = neutral + malusCorrect + malusWrong`. `roundEvents(game, roundIndex)` (strukturierte Fakten einer fertigen
+  Runde: Held/Bösewicht, Nullansagen, Führungswechsel, Kletterer in der Platzierung — Grundlage
+  für den Rundenkommentar, siehe `src/commentary.js`)
+
+### Charts (`src/charts.js`)
+DOM-Bausteine (kein Chart-Framework) für die Zuschaueransicht: `assignSeriesColors(players)`
+(stabile Spieler→Farbe-Zuordnung nach Sitzreihenfolge), `buildScoreChart`/`buildRankChart`
+(interaktiver SVG-Mehrlinien-Chart mit Crosshair/Tooltip/Legende) und `buildBidVsTricksChart`
+(HTML/CSS-Balken Angesagt vs. gemacht). Farbpalette (`--series-1..8` in `styles.css`) ist die
+dataviz-Skill-Referenzpalette, gegen die dunkle Oberfläche validiert.
+
+### Glücksrad (`src/wheel.js`)
+`buildDealerWheel(names, onSettled)` — reines SVG/CSS-Glücksrad (kein Framework) zur Auslosung
+des ersten Gebers beim Anlegen eines neuen Spiels (`#/new`, Option „Ersten Geber auslosen").
+Sektoren = Spielernamen in Sitzreihenfolge, Farbe aus derselben `--series-1..8`-Palette wie die
+Charts. Dreht per CSS-Transition auf eine zufällig gewählte Zielrotation (`Math.random()` —
+empirisch über 200k Ziehungen als unverzerrt verifiziert) und ruft `onSettled(winnerIndex)` auf,
+sobald sie steht; die Sitzreihenfolge wird erst danach per `rotateToStart` gesetzt und das Spiel
+angelegt (kein Zwischenspeichern eines unvollständigen Spiels).
+
+### Kommentar-Generator (`src/commentary.js`)
+`generateRoundCommentary(events)` — regelbasierter „Kommentator"-Text zur zuletzt fertig
+gespielten Runde, aus `engine.roundEvents()` gespeist. **Kein LLM/KI-Aufruf** (bewusste
+Entscheidung: ein echter API-Aufruf bräuchte einen Server-Proxy, um den Schlüssel geheim zu
+halten, und würde Firebase auf den kostenpflichtigen „Blaze"-Tarif zwingen — reine
+Textbausteine sind kostenlos, ohne Backend, sofort nutzbar). Immer eine Eröffnung + **höchstens
+zwei** weitere Highlights (Priorität: Held > Bösewicht > Nullansagen > Führungswechsel > größter
+Aufstieg) — bewusst knapp, statt jedes Ereignis für jeden Spieler auszubuchstabieren. Mehrere
+Nullansagen in derselben Runde werden zu einem Satz zusammengefasst (nicht einer pro Spieler).
+Formulierung wählt pro Ereignistyp aus mehreren Varianten, deterministisch über einen Seed aus
+der Rundennummer, damit der Text bei den vielen Re-Renders durchs Live-Abo nicht flackert.
+
+### Navigation (Seiten-Hierarchie)
+Der Zurück-Pfeil (‹) oben links führt immer **eine Ebene nach oben** in der Hierarchie
+`Startseite ← Spielleiter-Ansicht ← {Spieler-Ansicht, Zuschauer-Ansicht}` — nie direkt von
+Zuschauer- zu Startseite. Seitliche Sprünge zwischen Geschwister-Ansichten (Spielleiter ↔
+Zuschauer) laufen über explizite, beschriftete Buttons (z. B. „👁 Zuschauer-Ansicht" unten auf
+der Spielleiterseite), nicht über den Zurück-Pfeil — und nur in der Richtung, in der es keinen
+Zurück-Pfeil dafür gibt (die Zuschaueransicht braucht deshalb keinen eigenen „Spielleiter-
+Ansicht"-Button mehr, das leistet ihr Zurück-Pfeil bereits).
 
 ---
 
@@ -189,6 +241,11 @@ docs/SPEZIFIKATION.md   dieses Dokument
 | **M3** | **Firestore-Adapter** (`src/store-firebase.js`): gleiche Schnittstelle wie `store.js`, Live-Listener via `onSnapshot`, Spiel-IDs cloudweit, Liste & Löschen; `app.js` auf async/live umgestellt; persistenter IndexedDB-Cache (offline-tauglich) | ✅ fertig |
 | **M4** | Zuschauer-View `#/view/<id>` jetzt geräteübergreifend live (gleiches `onSnapshot`-Abo, read-only) + Share-Button | ✅ fertig |
 | **M5** | PWA (Manifest, Service-Worker, Icons) + Deploy auf `main` → live unter https://thommson92.github.io/RaufRunter/. SW nutzt **network-first** (online immer frischer Code, Cache nur als Offline-Fallback) + **Auto-Reload bei Update** (wiederkehrende Nutzer laden einmal automatisch neu) — so erreichen Deploys die Geräte zuverlässig. | ✅ fertig |
+| **M6** | Statistiken & Auswertung in der Zuschaueransicht: Fakten-Kacheln (Trefferquote, meiste/wenigste Ansagen, Treffer-Serie, beste Einzelrunde, häufigste Trumpffarbe) + drei Charts (Punkteverlauf, Platzierungsverlauf, Angesagt vs. gemacht). Reine Engine-Funktionen (`src/engine.js`) + DOM-Chart-Bausteine (`src/charts.js`), keine neuen Datenfelder. | ✅ fertig |
+| **M7** | Feinschliff Zuschaueransicht: Punktestand-Tabelle zeigt Kartenzahl statt Rundennummer, Gesamt-Spalte sticky + Auto-Scroll zur aktuellsten Runde + dauerhaft sichtbare Scrollbar; Live-Panel zur aktuellen Runde (Geber, Ansage-Fortschritt, Rest/Überzahl, wer ist dran); Punkteverlauf-Y-Achse in 10/20/50er-Schritten (nie 100). Neues-Spiel-Anlegen: Option „Ersten Geber auslosen" öffnet vor dem Start ein echtes SVG-Glücksrad (`src/wheel.js`), das die Sitzreihenfolge per `rotateToStart` setzt. Startseite: Datum je Spiel, neuer Footer mit Copyright. Spiel löschen jetzt mit Passwortabfrage. | ✅ fertig |
+| **M8** | Zuschaueransicht: „Spielleiter-Ansicht"-Button (analog zum „Zuschauer-Ansicht"-Button auf der anderen Seite); Punktestand-Sortierung & Zeilen/Spalten-Achse als klar beschriftete Segmented Controls statt zweideutiger Toggle-Buttons; Fakten-Kacheln nennen bei Gleichstand alle betroffenen Namen (`extremeGroup`/`extremeRounds` als Arrays); neue „Malus-Bilanz"-Karte (`malusStats`); regelbasierter Rundenkommentar (`src/commentary.js` + `engine.roundEvents`). | ✅ fertig |
+| **M9** | Konsistente Navigation: Zurück-Pfeil führt jetzt immer eine Ebene nach oben (Zuschauer- → Spielleiter-Ansicht statt direkt Startseite), der dadurch redundante „Spielleiter-Ansicht"-Button in der Zuschaueransicht entfällt. Rundenkommentar knapper: Eröffnung + max. 2 Highlights statt aller Ereignisse, mehrere Nullansagen in einem Satz statt pro Spieler. Kartenreihenfolge Zuschaueransicht neu sortiert: Rundenkommentar, Punktestand, Punkteverlauf, Platzierungsverlauf, Statistiken, Malus-Bilanz, Angesagt vs. gemacht. | ✅ fertig |
+| **M10** | Malus-Bilanz überarbeitet: unterscheidet jetzt Geber-Runden ohne echten Einfluss (neutral) von Malus+richtig/Malus+falsch (`dealerMalusStats` statt `malusStats`) und ist **immer sichtbar** (vorher versteckt, wenn noch kein bindender Malus aufgetreten war — schwer von einem Bug zu unterscheiden). Darstellung als Kreisdiagramm je Spieler (CSS `conic-gradient`, grau/grün/rot, gemeinsame Legende). | ✅ fertig |
 
 ### Status-Notiz (M3/M4 verifiziert)
 - Smoke-Test via Chrome-headless + DevTools-Protokoll: Startseite/`listGames` lädt,

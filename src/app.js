@@ -8,10 +8,22 @@ import {
   standings,
   allowedBids,
   biddingOrder,
+  rotateToStart,
   tricksCheck,
   randomTrump,
   totalRounds,
+  rankProgression,
+  bidTrickTotals,
+  accuracyStats,
+  longestCorrectStreak,
+  extremeRounds,
+  trumpCounts,
+  dealerMalusStats,
+  roundEvents,
 } from './engine.js';
+import { assignSeriesColors, buildScoreChart, buildRankChart, buildBidVsTricksChart } from './charts.js';
+import { buildDealerWheel } from './wheel.js';
+import { generateRoundCommentary } from './commentary.js';
 
 const appEl = document.getElementById('app');
 
@@ -21,7 +33,12 @@ const ui = {
   activeRound: null,  // welche Runde im Eingabe-Panel offen ist
   tableSort: 'seat',  // Punktestand-Sortierung: 'seat' (Sitzreihe) | 'rank' (Punkte)
   tableTranspose: false, // Achsen tauschen: false = Spieler-Zeilen, true = Runden-Zeilen
+  lottery: null, // { names, winner } während der Geber-Auslosung beim Anlegen (#/new)
 };
+
+// Nur eine einfache Hürde gegen versehentliches Löschen, keine echte Auth —
+// bewusst im Client hinterlegt.
+const DELETE_PASSWORD = 'Leclec';
 
 // Aktuell abonniertes Spiel (Live-Cache aus Firestore).
 //   game === undefined  -> lädt noch
@@ -141,11 +158,14 @@ async function renderHome() {
           const done = g.rounds.filter((r) => r.done).length;
           const total = g.rounds.length;
           const lead = standings(g).ranking[0];
+          const date = g.createdAt
+            ? new Date(g.createdAt).toLocaleDateString('de-DE')
+            : null;
           return `
             <button class="card list-item" data-action="open" data-id="${g.id}">
               <div class="meta">
                 <strong>${esc(g.name)}</strong><br/>
-                <small>${g.players.length} Spieler · Runde ${Math.min(done + 1, total)}/${total}${
+                <small>${date ? `${date} · ` : ''}${g.players.length} Spieler · Runde ${Math.min(done + 1, total)}/${total}${
             done === total ? ' · fertig' : ''
           }${lead && done ? ` · 🥇 ${esc(lead.name)}` : ''}</small>
               </div>
@@ -161,7 +181,7 @@ async function renderHome() {
     <div class="card center" style="border-style:dashed">
       <button class="btn-primary" data-action="new" style="width:100%">+ Neues Spiel</button>
     </div>
-    <p class="center muted" style="font-size:0.8rem">10 rauf, 10 runter — Punkte-App</p>
+    <p class="center muted" style="font-size:0.8rem">Rauf & Runter – Punkte App · © ${new Date().getFullYear()} Thomas Kellner</p>
   `;
 }
 
@@ -176,8 +196,16 @@ function ensureSuggestions(d) {
 }
 
 function renderNew() {
+  if (ui.lottery) return renderDealerLottery();
   if (!ui.draft) {
-    ui.draft = { name: '', maxCards: 7, players: ['', ''], restrictLastBid: true, upOnly: false };
+    ui.draft = {
+      name: '',
+      maxCards: 7,
+      players: ['', ''],
+      restrictLastBid: true,
+      upOnly: false,
+      rollDealer: false,
+    };
   }
   const d = ui.draft;
   ensureSuggestions(d);
@@ -226,9 +254,73 @@ function renderNew() {
       <p class="muted" style="margin:6px 0 4px;font-size:0.8rem">Tipp: 🎲 setzt einen lustigen Namen ein – oder eigene eintippen.</p>
       ${playerInputs}
       <button class="btn-ghost btn-sm" data-action="add-player" style="margin-top:10px">+ Spieler</button>
+      <label class="check-row">
+        <input type="checkbox" data-field="rollDealer" ${d.rollDealer ? 'checked' : ''} />
+        <span>Ersten Geber auslosen (Glücksrad)</span>
+      </label>
+      <small class="muted">Vor dem Start entscheidet ein Glücksrad, wer in Runde 1 gibt.</small>
     </div>
     <button class="btn-primary" data-action="start" style="width:100%">Spiel starten</button>
   `;
+}
+
+/** Zwischenschritt vorm Anlegen: Glücksrad lost aus, wer zuerst gibt. */
+function renderDealerLottery() {
+  const { names } = ui.lottery;
+  appEl.innerHTML = `
+    <div class="topbar">
+      <button class="icon-btn btn-ghost" data-action="lottery-cancel">‹</button>
+      <h1>Wer gibt zuerst?</h1>
+    </div>
+    <div class="card center" id="lottery-card">
+      <p class="muted" style="margin-top:0">Dreh das Rad – wer getroffen wird, gibt in Runde 1.</p>
+      <div id="wheel-mount"></div>
+    </div>
+  `;
+  document.getElementById('wheel-mount').appendChild(buildDealerWheel(names, onWheelSettled));
+}
+
+/** Callback des Glücksrads, sobald es steht: Ergebnis anzeigen, Spiel noch nicht anlegen. */
+function onWheelSettled(winnerIndex) {
+  if (!ui.lottery || currentRoute().view !== 'new') return; // inzwischen weggenavigiert
+  ui.lottery.winner = winnerIndex;
+  const card = document.getElementById('lottery-card');
+  if (!card) return;
+
+  const p = document.createElement('p');
+  p.className = 'lottery-result';
+  p.textContent = `🎉 ${ui.lottery.names[winnerIndex]} gibt als Erstes!`;
+
+  const btn = document.createElement('button');
+  btn.className = 'btn-primary';
+  btn.style.width = '100%';
+  btn.style.marginTop = '10px';
+  btn.textContent = 'Weiter zum Spiel';
+  btn.dataset.action = 'lottery-continue';
+
+  card.append(p, btn);
+}
+
+/** Legt das Spiel an (mit gegebener Spielerreihenfolge), speichert & navigiert hin. */
+async function createAndEnterGame(playerNames) {
+  const newGame = createGame({
+    name: ui.draft.name,
+    maxCards: ui.draft.maxCards,
+    playerNames,
+    restrictLastBid: ui.draft.restrictLastBid !== false,
+    upOnly: ui.draft.upOnly === true,
+  });
+  try {
+    await fb.saveGame(newGame);
+  } catch (err) {
+    console.error(err);
+    alert('Spiel konnte nicht angelegt werden – bist du online?');
+    return;
+  }
+  ui.draft = null;
+  ui.lottery = null;
+  ui.activeRound = null;
+  navigate('/game/' + newGame.id);
 }
 
 function renderPlayers() {
@@ -239,7 +331,7 @@ function renderPlayers() {
   const rows = seated
     .map(
       (p, i) => `
-      <div class="player-row">
+      <div class="player-row" data-pid="${p.id}">
         <span class="seat">${i + 1}</span>
         <input data-edit-name="${p.id}" value="${esc(p.name)}" />
         <button class="icon-btn btn-ghost" data-action="seat-up" data-pid="${p.id}" ${
@@ -428,8 +520,8 @@ function standingsTable(game) {
     head = `
       <tr>
         <th class="name">Spieler</th>
-        ${doneRounds.map((r) => `<th>R${r.index + 1}</th>`).join('')}
-        <th>Gesamt</th>
+        ${doneRounds.map((r) => `<th title="Runde ${r.index + 1}">${r.cardCount}</th>`).join('')}
+        <th class="sticky-right">Gesamt</th>
       </tr>`;
     body = players
       .map((p) => {
@@ -440,7 +532,7 @@ function standingsTable(game) {
         <tr>
           <td class="name ${isLeader(p.id) ? 'rank-1' : ''}">${nameCell(p)}</td>
           ${cells}
-          <td class="total">${fmtScore(byPlayer[p.id].total)}</td>
+          <td class="total sticky-right">${fmtScore(byPlayer[p.id].total)}</td>
         </tr>`;
       })
       .join('');
@@ -448,7 +540,7 @@ function standingsTable(game) {
     // Layout B: Runden = Zeilen, Spieler = Spalten (Achsen getauscht)
     head = `
       <tr>
-        <th class="name">Runde</th>
+        <th class="name">Karten</th>
         ${players
           .map(
             (p) => `<th class="${isLeader(p.id) ? 'rank-1' : ''}">${nameCell(p)}</th>`,
@@ -462,7 +554,7 @@ function standingsTable(game) {
           .join('');
         return `
         <tr>
-          <td class="name">R${r.index + 1}</td>
+          <td class="name" title="Runde ${r.index + 1}">${r.cardCount}</td>
           ${cells}
         </tr>`;
       })
@@ -477,16 +569,23 @@ function standingsTable(game) {
     body = roundRows + totalRow;
   }
 
-  const sortLabel = ui.tableSort === 'rank' ? 'Punkte' : 'Sitzreihe';
   return `
     <div class="card">
-      <div class="row spread">
-        <h2 style="margin:0">Punktestand</h2>
-        <div class="btn-row" style="flex:0">
-          <button class="btn-ghost btn-sm" data-action="toggle-sort" style="min-width:auto"
-            title="Sortierung umschalten (Sitzreihe / Punkte)">↕ ${sortLabel}</button>
-          <button class="btn-ghost btn-sm" data-action="toggle-transpose" style="min-width:auto;flex:0"
-            title="Zeilen und Spalten tauschen">⇄</button>
+      <h2 style="margin:0 0 10px">Punktestand</h2>
+      <div class="table-controls">
+        <div>
+          <span class="table-controls-label">Sortieren nach</span>
+          <div class="seg-group">
+            <button class="seg-btn ${ui.tableSort !== 'rank' ? 'active' : ''}" data-action="set-sort" data-v="seat">Sitzreihenfolge</button>
+            <button class="seg-btn ${ui.tableSort === 'rank' ? 'active' : ''}" data-action="set-sort" data-v="rank">Punktestand</button>
+          </div>
+        </div>
+        <div>
+          <span class="table-controls-label">Pro Zeile</span>
+          <div class="seg-group">
+            <button class="seg-btn ${!ui.tableTranspose ? 'active' : ''}" data-action="set-axis" data-v="players">1 Spieler</button>
+            <button class="seg-btn ${ui.tableTranspose ? 'active' : ''}" data-action="set-axis" data-v="rounds">1 Runde</button>
+          </div>
         </div>
       </div>
       <div class="table-wrap"><table>
@@ -498,6 +597,98 @@ function standingsTable(game) {
           ? '<p class="center" style="margin:10px 0 0">Noch keine fertige Runde.</p>'
           : ''
       }
+    </div>`;
+}
+
+// Scrollt die Punktestand-Tabelle immer ganz nach rechts (aktuellste Runde) —
+// nur relevant für Layout A, wo Runden als Spalten nach rechts wachsen.
+function scrollTableToLatest() {
+  if (ui.tableTranspose) return;
+  const wrap = appEl.querySelector('.table-wrap');
+  if (wrap) wrap.scrollLeft = wrap.scrollWidth;
+}
+
+/**
+ * Live-Status der aktuell laufenden Runde für die Zuschaueransicht: Geber &
+ * Kartenzahl, wer bereits angesagt hat (und was), wie viele Stiche noch
+ * offen/schon zu viel angesagt sind, wer als Nächstes dran ist — bzw. sobald
+ * alle angesagt haben: wer schon Stiche eingetragen hat.
+ */
+function currentRoundCard(game) {
+  const idx = game.rounds.findIndex((r) => !r.done);
+  if (idx === -1) return '';
+  const round = game.rounds[idx];
+  const seated = seatSorted(game);
+  const order = biddingOrder(seated, idx);
+  const dealer = order[order.length - 1];
+  const cc = round.cardCount;
+  const trump = round.trump;
+  const allBids = order.every((p) => round.bids[p.id] != null);
+  const nextBidder = order.find((p) => round.bids[p.id] == null);
+
+  let bidSum = 0;
+  const bidRows = order
+    .map((p) => {
+      const has = round.bids[p.id] != null;
+      if (has) bidSum += round.bids[p.id];
+      const isNext = !has && nextBidder && p.id === nextBidder.id;
+      const status = has
+        ? `<span class="pill">angesagt: ${round.bids[p.id]}</span>`
+        : isNext
+          ? '<span class="pill pill-next">ist dran</span>'
+          : '<span class="muted" style="font-size:0.8rem">wartet</span>';
+      return `
+        <div class="live-row ${has ? 'live-row-done' : isNext ? 'live-row-next' : 'live-row-waiting'}">
+          <span>${esc(p.name)}${p.id === dealer.id ? ' 🃏' : ''}</span>
+          ${status}
+        </div>`;
+    })
+    .join('');
+
+  const remaining = cc - bidSum;
+  const bidSummary = allBids
+    ? ''
+    : remaining >= 0
+      ? `<p class="muted" style="margin:8px 0 0">Noch offen: <strong>${remaining}</strong> von ${cc}</p>`
+      : `<p class="muted" style="margin:8px 0 0">Bereits <strong>${Math.abs(remaining)}</strong> mehr angesagt als Karten (${cc})</p>`;
+
+  let tricksBlock = '';
+  if (allBids) {
+    let trickSum = 0;
+    const trickRows = order
+      .map((p) => {
+        const has = round.tricks[p.id] != null;
+        if (has) trickSum += round.tricks[p.id];
+        return `
+          <div class="live-row ${has ? 'live-row-done' : 'live-row-waiting'}">
+            <span>${esc(p.name)}</span>
+            ${
+              has
+                ? `<span class="pill">Stiche: ${round.tricks[p.id]}</span>`
+                : '<span class="muted" style="font-size:0.8rem">wartet</span>'
+            }
+          </div>`;
+      })
+      .join('');
+    tricksBlock = `
+      <h3 style="margin-top:16px">Gemachte Stiche</h3>
+      ${trickRows}
+      <p class="muted" style="margin:8px 0 0">Bisher gemacht: <strong>${trickSum}</strong> von ${cc}</p>`;
+  }
+
+  return `
+    <div class="card">
+      <div class="row spread">
+        <h2 style="margin:0">Aktuelle Runde</h2>
+        <span class="pill">${cc} ${cc === 1 ? 'Karte' : 'Karten'}</span>
+      </div>
+      <p class="muted" style="margin:6px 0 0;font-size:0.85rem">🃏 ${esc(dealer.name)} gibt${
+    trump ? ` · <span class="trump"><span class="dot dot-${trump}"></span>${trump}</span>` : ''
+  }</p>
+      <h3 style="margin-top:16px">Ansagen</h3>
+      ${bidRows}
+      ${bidSummary}
+      ${tricksBlock}
     </div>`;
 }
 
@@ -529,6 +720,7 @@ function renderScorer() {
       </div>
     </div>
   `;
+  scrollTableToLatest();
 }
 
 function renderViewer() {
@@ -539,14 +731,208 @@ function renderViewer() {
   const done = game.rounds.filter((r) => r.done).length;
   appEl.innerHTML = `
     <div class="topbar">
-      <button class="icon-btn btn-ghost" data-action="home">‹</button>
+      <button class="icon-btn btn-ghost" data-action="open" data-id="${game.id}">‹</button>
       <h1>${esc(game.name)} <span class="pill">live</span></h1>
     </div>
     <p class="muted progress" style="margin-top:0">Runde ${Math.min(done + 1, game.rounds.length)}/${
     game.rounds.length
   } · nur Ansicht</p>
+    ${currentRoundCard(game)}
+    ${commentaryCard(game)}
     ${standingsTable(game)}
+    ${chartCard('Punkteverlauf', 'score')}
+    ${chartCard('Platzierungsverlauf', 'rank')}
+    ${statsFactsCard(game)}
+    ${malusCard(game)}
+    ${chartCard('Angesagt vs. gemacht', 'bidtrick')}
   `;
+  scrollTableToLatest();
+  mountStatsCharts(game);
+}
+
+// ---------- Statistiken (Zuschaueransicht) ----------
+const TRUMP_EMOJI = { Rot: '🔴', Blau: '🔵', Grün: '🟢', Gelb: '🟡' };
+
+/**
+ * Bestes & schlechtestes Element einer Liste { name, value } — für Fakten-
+ * Kacheln. Bei Gleichstand werden ALLE Namen am Extremwert genannt, nicht
+ * nur der erstbeste (z. B. zwei Spieler mit derselben Anzahl Ansagen).
+ */
+function extremeGroup(entries) {
+  if (!entries.length) return { best: null, worst: null };
+  const maxVal = Math.max(...entries.map((e) => e.value));
+  const minVal = Math.min(...entries.map((e) => e.value));
+  return {
+    best: { value: maxVal, names: entries.filter((e) => e.value === maxVal).map((e) => e.name) },
+    worst: { value: minVal, names: entries.filter((e) => e.value === minVal).map((e) => e.name) },
+  };
+}
+
+function statTile(icon, label, value, sub) {
+  return `
+    <div class="stat-tile">
+      <div class="stat-tile-icon">${icon}</div>
+      <div class="stat-tile-label">${esc(label)}</div>
+      <div class="stat-tile-value">${value}</div>
+      <div class="stat-tile-sub">${esc(sub)}</div>
+    </div>`;
+}
+
+function statsFactsCard(game) {
+  const doneRounds = game.rounds.filter((r) => r.done);
+  const body = !doneRounds.length
+    ? '<p class="center muted" style="margin:10px 0 0">Noch keine fertige Runde.</p>'
+    : statsFacts(game, doneRounds);
+  return `<div class="card"><h2>Statistiken</h2>${body}</div>`;
+}
+
+const namesList = (names) => names.map(esc).join(', ');
+
+function statsFacts(game, doneRounds) {
+  const acc = accuracyStats(game);
+  const totals = bidTrickTotals(game);
+  const streaks = longestCorrectStreak(game);
+  const { best: bestRounds } = extremeRounds(game);
+  const trumps = trumpCounts(game);
+
+  const accEntries = game.players
+    .map((p) => ({ name: p.name, value: acc[p.id].accuracy }))
+    .filter((e) => e.value != null);
+  const { best: bestAcc, worst: worstAcc } = extremeGroup(accEntries);
+
+  const bidEntries = game.players.map((p) => ({ name: p.name, value: totals[p.id].bidSum }));
+  const { best: mostBid, worst: fewestBid } = extremeGroup(bidEntries);
+
+  const streakEntries = game.players
+    .map((p) => ({ name: p.name, value: streaks[p.id] }))
+    .filter((e) => e.value > 0);
+  const bestStreak = extremeGroup(streakEntries).best;
+
+  const maxTrump = trumps && Object.values(trumps).length ? Math.max(...Object.values(trumps)) : 0;
+  const topTrumpColors = maxTrump > 0 ? Object.keys(trumps).filter((c) => trumps[c] === maxTrump) : [];
+
+  const tiles = [];
+  if (bestAcc) {
+    tiles.push(statTile('🎯', 'Treffsicherste Ansage', namesList(bestAcc.names), `${Math.round(bestAcc.value * 100)}% Treffer`));
+  }
+  if (worstAcc && worstAcc.value !== bestAcc.value) {
+    tiles.push(statTile('🎲', 'Unsicherste Ansage', namesList(worstAcc.names), `${Math.round(worstAcc.value * 100)}% Treffer`));
+  }
+  if (mostBid) {
+    tiles.push(statTile('✋', 'Meiste Stiche angesagt', namesList(mostBid.names), `${mostBid.value} insgesamt`));
+  }
+  if (fewestBid && fewestBid.value !== mostBid.value) {
+    tiles.push(statTile('🤏', 'Wenigste Stiche angesagt', namesList(fewestBid.names), `${fewestBid.value} insgesamt`));
+  }
+  if (bestStreak) {
+    tiles.push(statTile('🔥', 'Längste Treffer-Serie', namesList(bestStreak.names), `${bestStreak.value} Runden in Folge`));
+  }
+  if (bestRounds.length) {
+    const signed = bestRounds[0].score > 0 ? '+' + bestRounds[0].score : String(bestRounds[0].score);
+    const who = bestRounds.map((e) => `${esc(e.name)} (R${e.roundIndex + 1})`).join(', ');
+    tiles.push(statTile('🏆', 'Beste Einzelrunde', who, `${signed} Punkte`));
+  }
+  if (topTrumpColors.length) {
+    const icon = topTrumpColors.length === 1 ? TRUMP_EMOJI[topTrumpColors[0]] || '🎲' : '🎲';
+    tiles.push(statTile(icon, 'Liebste Trumpffarbe', namesList(topTrumpColors), `${maxTrump}× gelost`));
+  }
+
+  return `<div class="stat-grid">${tiles.join('')}</div>`;
+}
+
+/**
+ * Kreisdiagramm für einen Spieler: Anteil der Geber-Runden ohne Einfluss
+ * (grau), mit Malus + richtig (grün) und mit Malus + falsch (rot). Feste
+ * Reihenfolge im Uhrzeigersinn (neutral → richtig → falsch), damit die
+ * Farbbedeutung über alle Spieler hinweg gleich bleibt.
+ */
+function malusPie(r) {
+  const total = r.dealerRounds;
+  if (total === 0) {
+    return '<div class="malus-pie" style="background: var(--surface)"></div>';
+  }
+  const p1 = (r.neutral / total) * 100;
+  const p2 = p1 + (r.malusCorrect / total) * 100;
+  return `<div class="malus-pie" style="background: conic-gradient(
+    var(--muted) 0 ${p1}%,
+    var(--good) ${p1}% ${p2}%,
+    var(--bad) ${p2}% 100%
+  )"></div>`;
+}
+
+/**
+ * Bilanz-Karte: wie oft war jemand als letzter Ansagender (Geber) dran, wie
+ * oft hatte die verbotene Ansage dabei überhaupt Einfluss auf ihn — und lag
+ * er dann richtig oder falsch? Immer sichtbar, auch ohne bisherigen Malus.
+ */
+function malusCard(game) {
+  const stats = dealerMalusStats(game);
+  const rows = game.players
+    .map((p) => ({ name: p.name, ...stats[p.id] }))
+    .sort((a, b) => b.dealerRounds - a.dealerRounds);
+
+  const body = rows
+    .map(
+      (r) => `
+        <div class="malus-player">
+          ${malusPie(r)}
+          <div class="malus-player-name">${esc(r.name)}</div>
+          <div class="malus-player-detail muted">
+            ${r.dealerRounds}× Geber<br/>${r.neutral} ohne Einfluss · ${r.malusCorrect} richtig · ${r.malusWrong} falsch
+          </div>
+        </div>`,
+    )
+    .join('');
+
+  return `
+    <div class="card">
+      <h2>Malus-Bilanz</h2>
+      <p class="muted" style="margin:0 0 10px;font-size:0.8rem">Wie oft war jemand als Geber eingeschränkt (Ansage durfte nicht aufgehen) — und lag dann richtig oder falsch?</p>
+      <div class="malus-legend">
+        <span><span class="dot" style="background:var(--muted)"></span>ohne Einfluss</span>
+        <span><span class="dot" style="background:var(--good)"></span>Malus, richtig</span>
+        <span><span class="dot" style="background:var(--bad)"></span>Malus, falsch</span>
+      </div>
+      <div class="malus-grid">${body}</div>
+    </div>`;
+}
+
+/** Regelbasierter „Kommentator"-Text zur zuletzt fertig gespielten Runde. */
+function commentaryCard(game) {
+  const doneIndexes = game.rounds.filter((r) => r.done).map((r) => r.index);
+  if (!doneIndexes.length) return '';
+  const lastIndex = doneIndexes[doneIndexes.length - 1];
+  const events = roundEvents(game, lastIndex);
+  const text = generateRoundCommentary(events);
+  if (!text) return '';
+  return `
+    <div class="card">
+      <h2>🎙️ Rundenkommentar</h2>
+      <p style="margin:0">${esc(text)}</p>
+    </div>`;
+}
+
+function chartCard(title, chartId) {
+  return `
+    <div class="card">
+      <h2 style="margin-bottom:4px">${esc(title)}</h2>
+      <div class="chart-mount" data-chart="${chartId}"></div>
+    </div>`;
+}
+
+function mountStatsCharts(game) {
+  const series = assignSeriesColors(game.players);
+  const progression = rankProgression(game);
+  const totals = bidTrickTotals(game);
+
+  const scoreMount = appEl.querySelector('[data-chart="score"]');
+  if (scoreMount) scoreMount.replaceChildren(buildScoreChart(progression, series));
+
+  const rankMount = appEl.querySelector('[data-chart="rank"]');
+  if (rankMount) rankMount.replaceChildren(buildRankChart(progression, series));
+
+  const bidTrickMount = appEl.querySelector('[data-chart="bidtrick"]');
+  if (bidTrickMount) bidTrickMount.replaceChildren(buildBidVsTricksChart(game.players, totals));
 }
 
 // ---------- Aktionen ----------
@@ -560,6 +946,8 @@ function readDraftFromInputs() {
   if (restrict) ui.draft.restrictLastBid = restrict.checked;
   const playDown = appEl.querySelector('[data-field="playDown"]');
   if (playDown) ui.draft.upOnly = !playDown.checked;
+  const rollDealer = appEl.querySelector('[data-field="rollDealer"]');
+  if (rollDealer) ui.draft.rollDealer = rollDealer.checked;
   appEl.querySelectorAll('[data-pname]').forEach((inp) => {
     ui.draft.players[+inp.dataset.pname] = inp.value;
   });
@@ -609,12 +997,12 @@ async function onClick(e) {
       shareGame(gid);
       break;
 
-    case 'toggle-sort':
-      ui.tableSort = ui.tableSort === 'rank' ? 'seat' : 'rank';
+    case 'set-sort':
+      ui.tableSort = v;
       renderActiveView();
       break;
-    case 'toggle-transpose':
-      ui.tableTranspose = !ui.tableTranspose;
+    case 'set-axis':
+      ui.tableTranspose = v === 'rounds';
       renderActiveView();
       break;
 
@@ -650,22 +1038,24 @@ async function onClick(e) {
       readDraftFromInputs();
       const names = ui.draft.players.map((n) => n.trim()).filter(Boolean);
       if (names.length < 2) return alert('Bitte mindestens 2 Spieler eintragen.');
-      const newGame = createGame({
-        name: ui.draft.name,
-        maxCards: ui.draft.maxCards,
-        playerNames: names,
-        restrictLastBid: ui.draft.restrictLastBid !== false,
-        upOnly: ui.draft.upOnly === true,
-      });
-      try {
-        await fb.saveGame(newGame);
-      } catch (err) {
-        console.error(err);
-        return alert('Spiel konnte nicht angelegt werden – bist du online?');
+      if (ui.draft.rollDealer) {
+        ui.lottery = { names, winner: null };
+        renderNew();
+        break;
       }
-      ui.draft = null;
-      ui.activeRound = null;
-      navigate('/game/' + newGame.id);
+      await createAndEnterGame(names);
+      break;
+    }
+
+    case 'lottery-cancel':
+      ui.lottery = null;
+      renderNew();
+      break;
+
+    case 'lottery-continue': {
+      if (!ui.lottery || ui.lottery.winner == null) break;
+      const ordered = rotateToStart(ui.lottery.names, ui.lottery.winner);
+      await createAndEnterGame(ordered);
       break;
     }
 
@@ -726,16 +1116,21 @@ async function onClick(e) {
 
     case 'delete': {
       if (!game) break;
-      if (confirm(`„${game.name}" wirklich löschen?`)) {
-        try {
-          await fb.deleteGame(gid);
-        } catch (err) {
-          console.error(err);
-          return alert('Löschen fehlgeschlagen – bist du online?');
-        }
-        ui.activeRound = null;
-        navigate('/');
+      if (!confirm(`„${game.name}" wirklich löschen?`)) break;
+      const pw = prompt('Zum Löschen bitte Passwort eingeben:');
+      if (pw === null) break; // abgebrochen
+      if (pw !== DELETE_PASSWORD) {
+        alert('Falsches Passwort – Spiel wurde nicht gelöscht.');
+        break;
       }
+      try {
+        await fb.deleteGame(gid);
+      } catch (err) {
+        console.error(err);
+        return alert('Löschen fehlgeschlagen – bist du online?');
+      }
+      ui.activeRound = null;
+      navigate('/');
       break;
     }
   }
