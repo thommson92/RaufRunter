@@ -340,21 +340,25 @@ export function trumpCounts(game) {
 }
 
 /**
- * Bilanz je Spieler in Runden, in denen er den „Malus" der verbotenen
- * Ansage hatte: als letzter Ansagender (Geber) durfte er nicht frei wählen,
- * weil ein Wert (0..Kartenzahl) die Summe aller Ansagen exakt hätte
- * aufgehen lassen. Zählt nur Runden, in denen diese Einschränkung wirklich
- * griff (`forbiddenBid` ≠ null) — ist `restrictLastBid` aus, gibt es den
- * Malus nie, die Funktion liefert dann für alle Spieler 0 Runden.
+ * Bilanz je Spieler, wie oft er als letzter Ansagender (Geber) dran war —
+ * und was das für ihn bedeutet hat. Jede Geber-Runde fällt in genau eine
+ * von drei Kategorien:
+ * - `neutral`: Geber war zwar dran, aber die verbotene Ansage griff diese
+ *   Runde gar nicht wirklich (kein Wert 0..Kartenzahl wäre "aufgegangen",
+ *   oder `restrictLastBid` ist für das Spiel aus) — reiner theoretischer Malus.
+ * - `malusCorrect`: Einschränkung griff wirklich, Geber lag trotzdem richtig.
+ * - `malusWrong`: Einschränkung griff wirklich, Geber lag falsch.
+ * `dealerRounds = neutral + malusCorrect + malusWrong`.
  * @param {object} game
- * @returns {Object<string, {rounds:number, correct:number, wrong:number}>}
+ * @returns {Object<string, {dealerRounds:number, neutral:number, malusCorrect:number, malusWrong:number}>}
  */
-export function malusStats(game) {
+export function dealerMalusStats(game) {
   const stats = {};
-  for (const p of game.players) stats[p.id] = { rounds: 0, correct: 0, wrong: 0 };
-  if (game.restrictLastBid === false) return stats;
+  for (const p of game.players) stats[p.id] = { dealerRounds: 0, neutral: 0, malusCorrect: 0, malusWrong: 0 };
 
   const seated = [...game.players].sort((a, b) => a.seatOrder - b.seatOrder);
+  const restrictActive = game.restrictLastBid !== false;
+
   for (const round of game.rounds || []) {
     if (!round.done) continue;
     const order = biddingOrder(seated, round.index);
@@ -369,17 +373,17 @@ export function malusStats(game) {
       if (b == null) { allOthersBid = false; break; }
       sumOthers += b;
     }
-    if (!allOthersBid) continue;
-    if (forbiddenBid(round.cardCount, sumOthers) == null) continue; // keine echte Einschränkung
-
     const bid = round.bids?.[dealer.id];
     const tricks = round.tricks?.[dealer.id];
-    if (bid == null || tricks == null) continue;
+    if (!allOthersBid || bid == null || tricks == null) continue; // Runde nicht auswertbar
 
     const s = stats[dealer.id];
-    s.rounds += 1;
-    if (bid === tricks) s.correct += 1;
-    else s.wrong += 1;
+    s.dealerRounds += 1;
+
+    const bound = restrictActive && forbiddenBid(round.cardCount, sumOthers) != null;
+    if (!bound) s.neutral += 1;
+    else if (bid === tricks) s.malusCorrect += 1;
+    else s.malusWrong += 1;
   }
   return stats;
 }

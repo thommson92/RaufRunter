@@ -167,6 +167,27 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 12px 0 
 .live-row-waiting { opacity: 0.55; }
 .pill-next { background: var(--primary); color: var(--primary-ink); font-weight: 700; }
 
+/* ---- Zuschauer: Malus-Bilanz (Kreisdiagramme) ---- */
+.malus-legend {
+  display: flex; flex-wrap: wrap; gap: 8px 16px;
+  font-size: 0.78rem; color: var(--muted); margin-bottom: 12px;
+}
+.malus-legend .dot {
+  display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+  margin-right: 5px; vertical-align: middle;
+}
+.malus-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+}
+.malus-player {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  gap: 6px; background: var(--surface-2); border-radius: 10px; padding: 12px 8px;
+}
+.malus-pie { width: 60px; height: 60px; border-radius: 50%; flex: 0 0 auto; }
+.malus-player-name { font-weight: 600; font-size: 0.85rem; }
+.malus-player-detail { font-size: 0.72rem; line-height: 1.35; }
+
 /* ---- Standings-Tabelle: Steuerung (Sortierung / Ausrichtung) ---- */
 .table-controls {
   display: flex; flex-wrap: wrap; gap: 12px 20px; margin-bottom: 14px;

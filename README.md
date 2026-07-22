@@ -20,8 +20,9 @@ Mobile-first, läuft als statische Seite auf **GitHub Pages**.
 - **Regelbasierter Rundenkommentar** in der Zuschaueransicht: nach jeder fertigen Runde ein
   launiger Text (Held/Bösewicht der Runde, Nullansagen, Führungswechsel) — ohne KI/Server,
   reine Textbausteine aus den echten Rundendaten.
-- **Malus-Bilanz:** eigene Statistik, wie Spieler abschneiden, wenn sie als Geber die Ansage
-  nicht frei wählen durften.
+- **Malus-Bilanz:** Kreisdiagramm je Spieler, wie oft er Geber war und ob die verbotene Ansage
+  dabei Einfluss hatte (grau = kein Einfluss, grün = Malus + richtig, rot = Malus + falsch) —
+  immer sichtbar, auch ohne bisherigen Malus.
 - Installierbar als **PWA** („Zum Startbildschirm"), Oberfläche offline-fähig.
 - Spiel löschen ist durch eine Passwortabfrage geschützt.
 
@@ -47,7 +48,7 @@ Vollständige Spezifikation, Entscheidungs-Log, Tech-Stack und Implementierungsp
 **[docs/SPEZIFIKATION.md](docs/SPEZIFIKATION.md)**.
 
 ## Stand
-M0–M9 fertig: Engine, Schreiber-UI, Firestore-Live-Sync, Zuschauer-View, PWA, Deploy,
+M0–M10 fertig: Engine, Schreiber-UI, Firestore-Live-Sync, Zuschauer-View, PWA, Deploy,
 Statistiken/Auswertung, Feinschliff (Geber-Auslosung, Live-Rundenstatus, Lösch-Passwort),
-Rundenkommentar/Malus-Bilanz und konsistente Navigation. App ist live. Mögliche Nächstes:
-echter Zwei-Geräte-Test.
+Rundenkommentar/Malus-Bilanz, konsistente Navigation und Malus-Kreisdiagramme. App ist live.
+Mögliche Nächstes: echter Zwei-Geräte-Test.

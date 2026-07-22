@@ -184,9 +184,11 @@ docs/SPEZIFIKATION.md   dieses Dokument
 - **Geber-Auslosung (M7):** `rotateToStart(list, startIndex)` — rotiert ein Array (Namen oder
   Spieler) so, dass das Element an `startIndex` künftig an Position 0 steht; Nachbarschaft/
   relative Reihenfolge bleibt erhalten, mutiert nichts.
-- **Malus & Rundenkommentar (M8):** `malusStats(game)` (Bilanz je Spieler in Runden, in denen er
-  als Geber die verbotene Ansage wirklich einschränkte — nur gezählt, wenn `forbiddenBid` ≠ null,
-  sonst kein „echter" Malus), `roundEvents(game, roundIndex)` (strukturierte Fakten einer fertigen
+- **Malus & Rundenkommentar (M8, Bilanz überarbeitet in M10):** `dealerMalusStats(game)` — Bilanz
+  je Spieler, wie oft er Geber (letzter Ansagender) war, aufgeteilt in `neutral` (Malus griff
+  diese Runde gar nicht wirklich, `forbiddenBid` = null oder `restrictLastBid` aus),
+  `malusCorrect` (Malus griff, trotzdem richtig) und `malusWrong` (Malus griff, falsch gelegen);
+  `dealerRounds = neutral + malusCorrect + malusWrong`. `roundEvents(game, roundIndex)` (strukturierte Fakten einer fertigen
   Runde: Held/Bösewicht, Nullansagen, Führungswechsel, Kletterer in der Platzierung — Grundlage
   für den Rundenkommentar, siehe `src/commentary.js`)
 
@@ -243,6 +245,7 @@ Ansicht"-Button mehr, das leistet ihr Zurück-Pfeil bereits).
 | **M7** | Feinschliff Zuschaueransicht: Punktestand-Tabelle zeigt Kartenzahl statt Rundennummer, Gesamt-Spalte sticky + Auto-Scroll zur aktuellsten Runde + dauerhaft sichtbare Scrollbar; Live-Panel zur aktuellen Runde (Geber, Ansage-Fortschritt, Rest/Überzahl, wer ist dran); Punkteverlauf-Y-Achse in 10/20/50er-Schritten (nie 100). Neues-Spiel-Anlegen: Option „Ersten Geber auslosen" öffnet vor dem Start ein echtes SVG-Glücksrad (`src/wheel.js`), das die Sitzreihenfolge per `rotateToStart` setzt. Startseite: Datum je Spiel, neuer Footer mit Copyright. Spiel löschen jetzt mit Passwortabfrage. | ✅ fertig |
 | **M8** | Zuschaueransicht: „Spielleiter-Ansicht"-Button (analog zum „Zuschauer-Ansicht"-Button auf der anderen Seite); Punktestand-Sortierung & Zeilen/Spalten-Achse als klar beschriftete Segmented Controls statt zweideutiger Toggle-Buttons; Fakten-Kacheln nennen bei Gleichstand alle betroffenen Namen (`extremeGroup`/`extremeRounds` als Arrays); neue „Malus-Bilanz"-Karte (`malusStats`); regelbasierter Rundenkommentar (`src/commentary.js` + `engine.roundEvents`). | ✅ fertig |
 | **M9** | Konsistente Navigation: Zurück-Pfeil führt jetzt immer eine Ebene nach oben (Zuschauer- → Spielleiter-Ansicht statt direkt Startseite), der dadurch redundante „Spielleiter-Ansicht"-Button in der Zuschaueransicht entfällt. Rundenkommentar knapper: Eröffnung + max. 2 Highlights statt aller Ereignisse, mehrere Nullansagen in einem Satz statt pro Spieler. Kartenreihenfolge Zuschaueransicht neu sortiert: Rundenkommentar, Punktestand, Punkteverlauf, Platzierungsverlauf, Statistiken, Malus-Bilanz, Angesagt vs. gemacht. | ✅ fertig |
+| **M10** | Malus-Bilanz überarbeitet: unterscheidet jetzt Geber-Runden ohne echten Einfluss (neutral) von Malus+richtig/Malus+falsch (`dealerMalusStats` statt `malusStats`) und ist **immer sichtbar** (vorher versteckt, wenn noch kein bindender Malus aufgetreten war — schwer von einem Bug zu unterscheiden). Darstellung als Kreisdiagramm je Spieler (CSS `conic-gradient`, grau/grün/rot, gemeinsame Legende). | ✅ fertig |
 
 ### Status-Notiz (M3/M4 verifiziert)
 - Smoke-Test via Chrome-headless + DevTools-Protokoll: Startseite/`listGames` lädt,

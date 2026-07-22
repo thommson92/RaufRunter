@@ -18,7 +18,7 @@ import {
   longestCorrectStreak,
   extremeRounds,
   trumpCounts,
-  malusStats,
+  dealerMalusStats,
   roundEvents,
 } from './engine.js';
 import { assignSeriesColors, buildScoreChart, buildRankChart, buildBidVsTricksChart } from './charts.js';
@@ -841,35 +841,59 @@ function statsFacts(game, doneRounds) {
 }
 
 /**
- * Bilanz-Karte: wie schlagen sich Spieler in Runden, in denen sie als Geber
- * den „Malus" der verbotenen Ansage hatten (nicht frei wählen durften)?
- * Nur sichtbar, wenn die Regel aktiv ist und mindestens einmal wirklich griff.
+ * Kreisdiagramm für einen Spieler: Anteil der Geber-Runden ohne Einfluss
+ * (grau), mit Malus + richtig (grün) und mit Malus + falsch (rot). Feste
+ * Reihenfolge im Uhrzeigersinn (neutral → richtig → falsch), damit die
+ * Farbbedeutung über alle Spieler hinweg gleich bleibt.
+ */
+function malusPie(r) {
+  const total = r.dealerRounds;
+  if (total === 0) {
+    return '<div class="malus-pie" style="background: var(--surface)"></div>';
+  }
+  const p1 = (r.neutral / total) * 100;
+  const p2 = p1 + (r.malusCorrect / total) * 100;
+  return `<div class="malus-pie" style="background: conic-gradient(
+    var(--muted) 0 ${p1}%,
+    var(--good) ${p1}% ${p2}%,
+    var(--bad) ${p2}% 100%
+  )"></div>`;
+}
+
+/**
+ * Bilanz-Karte: wie oft war jemand als letzter Ansagender (Geber) dran, wie
+ * oft hatte die verbotene Ansage dabei überhaupt Einfluss auf ihn — und lag
+ * er dann richtig oder falsch? Immer sichtbar, auch ohne bisherigen Malus.
  */
 function malusCard(game) {
-  if (game.restrictLastBid === false) return '';
-  const stats = malusStats(game);
+  const stats = dealerMalusStats(game);
   const rows = game.players
     .map((p) => ({ name: p.name, ...stats[p.id] }))
-    .filter((r) => r.rounds > 0)
-    .sort((a, b) => b.rounds - a.rounds);
-  if (!rows.length) return '';
+    .sort((a, b) => b.dealerRounds - a.dealerRounds);
 
   const body = rows
-    .map((r) => {
-      const pct = Math.round((r.correct / r.rounds) * 100);
-      return `
-        <div class="live-row">
-          <span>${esc(r.name)}</span>
-          <span class="muted" style="font-size:0.85rem">${r.rounds}× Malus · ${r.correct} richtig · ${r.wrong} falsch (${pct}%)</span>
-        </div>`;
-    })
+    .map(
+      (r) => `
+        <div class="malus-player">
+          ${malusPie(r)}
+          <div class="malus-player-name">${esc(r.name)}</div>
+          <div class="malus-player-detail muted">
+            ${r.dealerRounds}× Geber<br/>${r.neutral} ohne Einfluss · ${r.malusCorrect} richtig · ${r.malusWrong} falsch
+          </div>
+        </div>`,
+    )
     .join('');
 
   return `
     <div class="card">
       <h2>Malus-Bilanz</h2>
-      <p class="muted" style="margin:0 0 4px;font-size:0.8rem">Als Geber durfte hier die Ansage nicht frei gewählt werden — wie lief's trotzdem?</p>
-      ${body}
+      <p class="muted" style="margin:0 0 10px;font-size:0.8rem">Wie oft war jemand als Geber eingeschränkt (Ansage durfte nicht aufgehen) — und lag dann richtig oder falsch?</p>
+      <div class="malus-legend">
+        <span><span class="dot" style="background:var(--muted)"></span>ohne Einfluss</span>
+        <span><span class="dot" style="background:var(--good)"></span>Malus, richtig</span>
+        <span><span class="dot" style="background:var(--bad)"></span>Malus, falsch</span>
+      </div>
+      <div class="malus-grid">${body}</div>
     </div>`;
 }
 

@@ -16,7 +16,7 @@ import {
   longestCorrectStreak,
   extremeRounds,
   trumpCounts,
-  malusStats,
+  dealerMalusStats,
   roundEvents,
   tricksCheck,
   randomTrump,
@@ -259,7 +259,7 @@ test('extremeRounds: keine fertige Runde ⇒ leere Arrays', () => {
   assert.deepEqual(extremeRounds(empty), { best: [], worst: [] });
 });
 
-test('malusStats: zählt nur Runden, in denen die verbotene Ansage wirklich griff', () => {
+test('dealerMalusStats: unterscheidet neutral / Malus-richtig / Malus-falsch', () => {
   const players = [
     { id: 'a', name: 'Anna', seatOrder: 0 },
     { id: 'b', name: 'Ben', seatOrder: 1 },
@@ -276,17 +276,17 @@ test('malusStats: zählt nur Runden, in denen die verbotene Ansage wirklich grif
       // verboten=1 (im Bereich 0..2) -> Malus greift. b sagt 0 an, verschätzt sich (Stiche 1).
       { index: 1, cardCount: 2, done: true, bids: { a: 0, b: 0, c: 1 }, tricks: { a: 0, b: 1, c: 1 } },
       // Runde 2 (1 Karte): Geber ist c (dealerIndex(2,3)=2). a=1,b=1 -> Rest -1,
-      // außerhalb 0..1 -> KEIN echter Malus für c, zählt nicht mit.
+      // außerhalb 0..1 -> KEIN echter Malus für c, zählt als "neutral" (dennoch Geber gewesen).
       { index: 2, cardCount: 1, done: true, bids: { a: 1, b: 1, c: 0 }, tricks: { a: 1, b: 0, c: 0 } },
     ],
   };
-  const stats = malusStats(game);
-  assert.deepEqual(stats.a, { rounds: 1, correct: 1, wrong: 0 });
-  assert.deepEqual(stats.b, { rounds: 1, correct: 0, wrong: 1 });
-  assert.deepEqual(stats.c, { rounds: 0, correct: 0, wrong: 0 });
+  const stats = dealerMalusStats(game);
+  assert.deepEqual(stats.a, { dealerRounds: 1, neutral: 0, malusCorrect: 1, malusWrong: 0 });
+  assert.deepEqual(stats.b, { dealerRounds: 1, neutral: 0, malusCorrect: 0, malusWrong: 1 });
+  assert.deepEqual(stats.c, { dealerRounds: 1, neutral: 1, malusCorrect: 0, malusWrong: 0 });
 });
 
-test('malusStats: restrictLastBid aus ⇒ nie Malus', () => {
+test('dealerMalusStats: restrictLastBid aus ⇒ Geber-Runden zählen, aber immer neutral', () => {
   const players = [
     { id: 'a', name: 'Anna', seatOrder: 0 },
     { id: 'b', name: 'Ben', seatOrder: 1 },
@@ -295,12 +295,36 @@ test('malusStats: restrictLastBid aus ⇒ nie Malus', () => {
     restrictLastBid: false,
     players,
     rounds: [
+      // dealerIndex(0,2)=0 -> a ist Geber. Ohne die Regel zählt das trotzdem als
+      // Geber-Runde, aber niemals als echter Malus.
       { index: 0, cardCount: 2, done: true, bids: { a: 1, b: 1 }, tricks: { a: 1, b: 1 } },
     ],
   };
-  const stats = malusStats(game);
-  assert.deepEqual(stats.a, { rounds: 0, correct: 0, wrong: 0 });
-  assert.deepEqual(stats.b, { rounds: 0, correct: 0, wrong: 0 });
+  const stats = dealerMalusStats(game);
+  assert.deepEqual(stats.a, { dealerRounds: 1, neutral: 1, malusCorrect: 0, malusWrong: 0 });
+  assert.deepEqual(stats.b, { dealerRounds: 0, neutral: 0, malusCorrect: 0, malusWrong: 0 });
+});
+
+test('dealerMalusStats: dealerRounds = neutral + malusCorrect + malusWrong', () => {
+  const players = [
+    { id: 'a', name: 'Anna', seatOrder: 0 },
+    { id: 'b', name: 'Ben', seatOrder: 1 },
+    { id: 'c', name: 'Cara', seatOrder: 2 },
+  ];
+  const game = {
+    restrictLastBid: true,
+    players,
+    rounds: [
+      { index: 0, cardCount: 3, done: true, bids: { a: 2, b: 1, c: 1 }, tricks: { a: 2, b: 1, c: 0 } },
+      { index: 1, cardCount: 2, done: true, bids: { a: 0, b: 0, c: 1 }, tricks: { a: 0, b: 1, c: 1 } },
+      { index: 2, cardCount: 1, done: true, bids: { a: 1, b: 1, c: 0 }, tricks: { a: 1, b: 0, c: 0 } },
+    ],
+  };
+  const stats = dealerMalusStats(game);
+  for (const id of ['a', 'b', 'c']) {
+    const s = stats[id];
+    assert.equal(s.dealerRounds, s.neutral + s.malusCorrect + s.malusWrong);
+  }
 });
 
 test('roundEvents: Fakten der ersten Runde (kein Vorher-Rang, keine Kletterer)', () => {
