@@ -211,10 +211,21 @@ angelegt (kein Zwischenspeichern eines unvollständigen Spiels).
 gespielten Runde, aus `engine.roundEvents()` gespeist. **Kein LLM/KI-Aufruf** (bewusste
 Entscheidung: ein echter API-Aufruf bräuchte einen Server-Proxy, um den Schlüssel geheim zu
 halten, und würde Firebase auf den kostenpflichtigen „Blaze"-Tarif zwingen — reine
-Textbausteine sind kostenlos, ohne Backend, sofort nutzbar). Wählt aus mehreren Formulierungs-
-Varianten pro Ereignistyp (Held/Bösewicht der Runde, Nullansage getroffen/verfehlt,
-Führungswechsel, größter Aufstieg) — deterministisch über einen Seed aus der Rundennummer, damit
-der Text bei den vielen Re-Renders durchs Live-Abo nicht flackert.
+Textbausteine sind kostenlos, ohne Backend, sofort nutzbar). Immer eine Eröffnung + **höchstens
+zwei** weitere Highlights (Priorität: Held > Bösewicht > Nullansagen > Führungswechsel > größter
+Aufstieg) — bewusst knapp, statt jedes Ereignis für jeden Spieler auszubuchstabieren. Mehrere
+Nullansagen in derselben Runde werden zu einem Satz zusammengefasst (nicht einer pro Spieler).
+Formulierung wählt pro Ereignistyp aus mehreren Varianten, deterministisch über einen Seed aus
+der Rundennummer, damit der Text bei den vielen Re-Renders durchs Live-Abo nicht flackert.
+
+### Navigation (Seiten-Hierarchie)
+Der Zurück-Pfeil (‹) oben links führt immer **eine Ebene nach oben** in der Hierarchie
+`Startseite ← Spielleiter-Ansicht ← {Spieler-Ansicht, Zuschauer-Ansicht}` — nie direkt von
+Zuschauer- zu Startseite. Seitliche Sprünge zwischen Geschwister-Ansichten (Spielleiter ↔
+Zuschauer) laufen über explizite, beschriftete Buttons (z. B. „👁 Zuschauer-Ansicht" unten auf
+der Spielleiterseite), nicht über den Zurück-Pfeil — und nur in der Richtung, in der es keinen
+Zurück-Pfeil dafür gibt (die Zuschaueransicht braucht deshalb keinen eigenen „Spielleiter-
+Ansicht"-Button mehr, das leistet ihr Zurück-Pfeil bereits).
 
 ---
 
@@ -231,6 +242,7 @@ der Text bei den vielen Re-Renders durchs Live-Abo nicht flackert.
 | **M6** | Statistiken & Auswertung in der Zuschaueransicht: Fakten-Kacheln (Trefferquote, meiste/wenigste Ansagen, Treffer-Serie, beste Einzelrunde, häufigste Trumpffarbe) + drei Charts (Punkteverlauf, Platzierungsverlauf, Angesagt vs. gemacht). Reine Engine-Funktionen (`src/engine.js`) + DOM-Chart-Bausteine (`src/charts.js`), keine neuen Datenfelder. | ✅ fertig |
 | **M7** | Feinschliff Zuschaueransicht: Punktestand-Tabelle zeigt Kartenzahl statt Rundennummer, Gesamt-Spalte sticky + Auto-Scroll zur aktuellsten Runde + dauerhaft sichtbare Scrollbar; Live-Panel zur aktuellen Runde (Geber, Ansage-Fortschritt, Rest/Überzahl, wer ist dran); Punkteverlauf-Y-Achse in 10/20/50er-Schritten (nie 100). Neues-Spiel-Anlegen: Option „Ersten Geber auslosen" öffnet vor dem Start ein echtes SVG-Glücksrad (`src/wheel.js`), das die Sitzreihenfolge per `rotateToStart` setzt. Startseite: Datum je Spiel, neuer Footer mit Copyright. Spiel löschen jetzt mit Passwortabfrage. | ✅ fertig |
 | **M8** | Zuschaueransicht: „Spielleiter-Ansicht"-Button (analog zum „Zuschauer-Ansicht"-Button auf der anderen Seite); Punktestand-Sortierung & Zeilen/Spalten-Achse als klar beschriftete Segmented Controls statt zweideutiger Toggle-Buttons; Fakten-Kacheln nennen bei Gleichstand alle betroffenen Namen (`extremeGroup`/`extremeRounds` als Arrays); neue „Malus-Bilanz"-Karte (`malusStats`); regelbasierter Rundenkommentar (`src/commentary.js` + `engine.roundEvents`). | ✅ fertig |
+| **M9** | Konsistente Navigation: Zurück-Pfeil führt jetzt immer eine Ebene nach oben (Zuschauer- → Spielleiter-Ansicht statt direkt Startseite), der dadurch redundante „Spielleiter-Ansicht"-Button in der Zuschaueransicht entfällt. Rundenkommentar knapper: Eröffnung + max. 2 Highlights statt aller Ereignisse, mehrere Nullansagen in einem Satz statt pro Spieler. Kartenreihenfolge Zuschaueransicht neu sortiert: Rundenkommentar, Punktestand, Punkteverlauf, Platzierungsverlauf, Statistiken, Malus-Bilanz, Angesagt vs. gemacht. | ✅ fertig |
 
 ### Status-Notiz (M3/M4 verifiziert)
 - Smoke-Test via Chrome-headless + DevTools-Protokoll: Startseite/`listGames` lädt,

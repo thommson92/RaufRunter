@@ -731,7 +731,7 @@ function renderViewer() {
   const done = game.rounds.filter((r) => r.done).length;
   appEl.innerHTML = `
     <div class="topbar">
-      <button class="icon-btn btn-ghost" data-action="home">‹</button>
+      <button class="icon-btn btn-ghost" data-action="open" data-id="${game.id}">‹</button>
       <h1>${esc(game.name)} <span class="pill">live</span></h1>
     </div>
     <p class="muted progress" style="margin-top:0">Runde ${Math.min(done + 1, game.rounds.length)}/${
@@ -740,12 +740,11 @@ function renderViewer() {
     ${currentRoundCard(game)}
     ${commentaryCard(game)}
     ${standingsTable(game)}
+    ${chartCard('Punkteverlauf', 'score')}
+    ${chartCard('Platzierungsverlauf', 'rank')}
     ${statsFactsCard(game)}
     ${malusCard(game)}
-    ${statsChartCards()}
-    <div class="card">
-      <button class="btn-ghost" data-action="open" data-id="${game.id}" style="width:100%">🧑‍💼 Spielleiter-Ansicht</button>
-    </div>
+    ${chartCard('Angesagt vs. gemacht', 'bidtrick')}
   `;
   scrollTableToLatest();
   mountStatsCharts(game);
@@ -895,14 +894,6 @@ function chartCard(title, chartId) {
       <h2 style="margin-bottom:4px">${esc(title)}</h2>
       <div class="chart-mount" data-chart="${chartId}"></div>
     </div>`;
-}
-
-function statsChartCards() {
-  return (
-    chartCard('Punkteverlauf', 'score') +
-    chartCard('Platzierungsverlauf', 'rank') +
-    chartCard('Angesagt vs. gemacht', 'bidtrick')
-  );
 }
 
 function mountStatsCharts(game) {

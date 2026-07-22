@@ -47,6 +47,7 @@ Vollständige Spezifikation, Entscheidungs-Log, Tech-Stack und Implementierungsp
 **[docs/SPEZIFIKATION.md](docs/SPEZIFIKATION.md)**.
 
 ## Stand
-M0–M8 fertig: Engine, Schreiber-UI, Firestore-Live-Sync, Zuschauer-View, PWA, Deploy,
-Statistiken/Auswertung, Feinschliff (Geber-Auslosung, Live-Rundenstatus, Lösch-Passwort) und
-Rundenkommentar/Malus-Bilanz. App ist live. Mögliche Nächstes: echter Zwei-Geräte-Test.
+M0–M9 fertig: Engine, Schreiber-UI, Firestore-Live-Sync, Zuschauer-View, PWA, Deploy,
+Statistiken/Auswertung, Feinschliff (Geber-Auslosung, Live-Rundenstatus, Lösch-Passwort),
+Rundenkommentar/Malus-Bilanz und konsistente Navigation. App ist live. Mögliche Nächstes:
+echter Zwei-Geräte-Test.
