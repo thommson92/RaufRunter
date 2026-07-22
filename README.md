@@ -11,7 +11,20 @@ Mobile-first, läuft als statische Seite auf **GitHub Pages**.
 - Punktestand-Tabelle, Runden nachträglich editierbar, Sitzreihenfolge änderbar.
 - Optionaler **„Farbe losen"-Knopf** (Rot/Blau/Grün/Gelb).
 - Zuschauer-Link (read-only), **geräteübergreifend live** über Firestore.
+- **Statistiken in der Zuschaueransicht:** Fakten-Kacheln (Trefferquote, meiste/wenigste
+  Ansagen, Treffer-Serie, beste Einzelrunde, häufigste Trumpffarbe) + Charts
+  (Punkteverlauf, Platzierungsverlauf, Angesagt vs. gemacht) sowie ein Live-Panel zur
+  aktuellen Runde (Geber, Ansage-Fortschritt, wer ist dran).
+- **Geber-Auslosung** beim Anlegen eines neuen Spiels: Option „Ersten Geber auslosen" öffnet
+  vor dem Start ein echtes Glücksrad, das die Sitzreihenfolge automatisch passend setzt.
+- **Regelbasierter Rundenkommentar** in der Zuschaueransicht: nach jeder fertigen Runde ein
+  launiger Text (Held/Bösewicht der Runde, Nullansagen, Führungswechsel) — ohne KI/Server,
+  reine Textbausteine aus den echten Rundendaten.
+- **Malus-Bilanz:** Kreisdiagramm je Spieler, wie oft er Geber war und ob die verbotene Ansage
+  dabei Einfluss hatte (grau = kein Einfluss, grün = Malus + richtig, rot = Malus + falsch) —
+  immer sichtbar, auch ohne bisherigen Malus.
 - Installierbar als **PWA** („Zum Startbildschirm"), Oberfläche offline-fähig.
+- Spiel löschen ist durch eine Passwortabfrage geschützt.
 
 **Live:** <https://thommson92.github.io/RaufRunter/>
 
@@ -35,5 +48,7 @@ Vollständige Spezifikation, Entscheidungs-Log, Tech-Stack und Implementierungsp
 **[docs/SPEZIFIKATION.md](docs/SPEZIFIKATION.md)**.
 
 ## Stand
-M0–M5 fertig: Engine, Schreiber-UI, Firestore-Live-Sync, Zuschauer-View, PWA und
-Deploy. App ist live. Mögliche Nächstes: echter Zwei-Geräte-Test, Feinschliff.
+M0–M10 fertig: Engine, Schreiber-UI, Firestore-Live-Sync, Zuschauer-View, PWA, Deploy,
+Statistiken/Auswertung, Feinschliff (Geber-Auslosung, Live-Rundenstatus, Lösch-Passwort),
+Rundenkommentar/Malus-Bilanz, konsistente Navigation und Malus-Kreisdiagramme. App ist live.
+Mögliche Nächstes: echter Zwei-Geräte-Test.

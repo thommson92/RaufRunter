@@ -88,6 +88,26 @@ export function biddingOrder(seated, roundIndex) {
 }
 
 /**
+ * Rotiert ein Array so, dass das Element an `startIndex` künftig an Position 0
+ * steht — die relative Reihenfolge/Nachbarschaft der übrigen Elemente bleibt
+ * erhalten, es verschiebt sich nur der Startpunkt. Fürs Auslosen des ersten
+ * Gebers (Runde 0 → `dealerIndex(0,n) = 0`): sowohl auf eine Namensliste beim
+ * Anlegen als auch auf eine Sitzreihenfolge anwendbar — mutiert nichts, die
+ * aufrufende Seite entscheidet, was mit der neuen Reihenfolge passiert
+ * (z. B. `seatOrder` neu zuweisen).
+ * @template T
+ * @param {T[]} list        Elemente in aktueller Reihenfolge
+ * @param {number} startIndex  Index in `list`, der neu Position 0 wird
+ * @returns {T[]} neu geordnetes Array (gleiche Elemente, keine Kopien)
+ */
+export function rotateToStart(list, startIndex) {
+  const n = list.length;
+  if (n === 0) return [];
+  const start = ((Math.floor(startIndex) % n) + n) % n;
+  return [...list.slice(start), ...list.slice(0, start)];
+}
+
+/**
  * Welche Ansage-Werte (0..cardCount) darf ein Spieler wählen?
  * Nur der letzte Spieler ist eingeschränkt.
  * @param {object} p
@@ -102,6 +122,30 @@ export function allowedBids({ cardCount, isLastBidder, sumOtherBids }) {
   if (!isLastBidder) return all;
   const forbidden = forbiddenBid(cardCount, sumOtherBids);
   return all.filter((v) => v !== forbidden);
+}
+
+/**
+ * Weist einer Liste von {..., total} geteilte Ränge zu (1,1,3,…), absteigend
+ * nach total sortiert. Gemeinsame Sortier-/Rang-Logik für standings() und
+ * rankProgression().
+ * @template {{total:number}} T
+ * @param {T[]} entries
+ * @returns {(T & {rank:number})[]}
+ */
+function withSharedRanks(entries) {
+  const sorted = [...entries].sort((a, b) => b.total - a.total);
+  let lastTotal = null;
+  let lastRank = 0;
+  sorted.forEach((entry, i) => {
+    if (entry.total === lastTotal) {
+      entry.rank = lastRank;
+    } else {
+      entry.rank = i + 1;
+      lastRank = entry.rank;
+      lastTotal = entry.total;
+    }
+  });
+  return sorted;
 }
 
 /**
@@ -131,23 +175,217 @@ export function standings(game) {
     }
   }
 
-  const ranking = game.players
-    .map((p) => ({ playerId: p.id, name: p.name, total: byPlayer[p.id].total }))
-    .sort((a, b) => b.total - a.total);
-  // Gleichstand = geteilter Rang (1,1,3,…)
-  let lastTotal = null;
-  let lastRank = 0;
-  ranking.forEach((entry, i) => {
-    if (entry.total === lastTotal) {
-      entry.rank = lastRank;
-    } else {
-      entry.rank = i + 1;
-      lastRank = entry.rank;
-      lastTotal = entry.total;
-    }
-  });
+  const ranking = withSharedRanks(
+    game.players.map((p) => ({ playerId: p.id, name: p.name, total: byPlayer[p.id].total })),
+  );
 
   return { byPlayer, ranking };
+}
+
+/**
+ * Rangverlauf über die Runden: für jede abgeschlossene Runde der kumulierte
+ * Punktestand und geteilte Rang jedes Spielers zu diesem Zeitpunkt.
+ * Basis für den grafischen Platzierungs-/Punkteverlauf in der Zuschaueransicht.
+ * @param {object} game
+ * @returns {Array<{ roundIndex:number, cardCount:number, totals:Object<string,number>, ranks:Object<string,number> }>}
+ */
+export function rankProgression(game) {
+  const totals = {};
+  for (const p of game.players) totals[p.id] = 0;
+
+  const points = [];
+  for (const round of game.rounds || []) {
+    if (!round.done) continue;
+    for (const p of game.players) {
+      const bid = round.bids?.[p.id];
+      const tricks = round.tricks?.[p.id];
+      if (bid == null || tricks == null) continue;
+      totals[p.id] += roundScore(bid, tricks);
+    }
+    const ranked = withSharedRanks(
+      game.players.map((p) => ({ playerId: p.id, total: totals[p.id] })),
+    );
+    const ranks = {};
+    ranked.forEach((entry) => (ranks[entry.playerId] = entry.rank));
+    points.push({
+      roundIndex: round.index,
+      cardCount: round.cardCount,
+      totals: { ...totals },
+      ranks,
+    });
+  }
+  return points;
+}
+
+/**
+ * Summe der Ansagen & tatsächlichen Stiche je Spieler über alle
+ * abgeschlossenen Runden — Basis für „meiste/wenigste Stiche angesagt".
+ * @param {object} game
+ * @returns {Object<string,{bidSum:number, trickSum:number, roundsPlayed:number}>}
+ */
+export function bidTrickTotals(game) {
+  const totals = {};
+  for (const p of game.players) totals[p.id] = { bidSum: 0, trickSum: 0, roundsPlayed: 0 };
+  for (const round of game.rounds || []) {
+    if (!round.done) continue;
+    for (const p of game.players) {
+      const bid = round.bids?.[p.id];
+      const tricks = round.tricks?.[p.id];
+      if (bid == null || tricks == null) continue;
+      const t = totals[p.id];
+      t.bidSum += bid;
+      t.trickSum += tricks;
+      t.roundsPlayed += 1;
+    }
+  }
+  return totals;
+}
+
+/**
+ * Trefferquote je Spieler: wie oft stimmte Ansage mit gemachten Stichen
+ * überein, gemessen an den gespielten Runden.
+ * @param {object} game
+ * @returns {Object<string,{attempts:number, correct:number, accuracy:number|null}>}
+ */
+export function accuracyStats(game) {
+  const stats = {};
+  for (const p of game.players) stats[p.id] = { attempts: 0, correct: 0, accuracy: null };
+  for (const round of game.rounds || []) {
+    if (!round.done) continue;
+    for (const p of game.players) {
+      const bid = round.bids?.[p.id];
+      const tricks = round.tricks?.[p.id];
+      if (bid == null || tricks == null) continue;
+      const s = stats[p.id];
+      s.attempts += 1;
+      if (bid === tricks) s.correct += 1;
+    }
+  }
+  for (const s of Object.values(stats)) {
+    s.accuracy = s.attempts > 0 ? s.correct / s.attempts : null;
+  }
+  return stats;
+}
+
+/**
+ * Längste Serie aufeinanderfolgender richtiger Ansagen je Spieler
+ * (in Rundenreihenfolge; eine fehlende/offene Runde unterbricht die Serie).
+ * @param {object} game
+ * @returns {Object<string, number>}
+ */
+export function longestCorrectStreak(game) {
+  const best = {};
+  const current = {};
+  for (const p of game.players) {
+    best[p.id] = 0;
+    current[p.id] = 0;
+  }
+  for (const round of game.rounds || []) {
+    for (const p of game.players) {
+      const bid = round.bids?.[p.id];
+      const tricks = round.tricks?.[p.id];
+      const hit = round.done && bid != null && tricks != null && bid === tricks;
+      if (hit) {
+        current[p.id] += 1;
+        if (current[p.id] > best[p.id]) best[p.id] = current[p.id];
+      } else {
+        current[p.id] = 0;
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * Beste & schlechteste Einzelrunden-Punktzahl über alle Spieler/Runden.
+ * Gibt ALLE Einträge zurück, die den Extremwert erreichen (Gleichstand
+ * möglich — z. B. zwei Spieler mit derselben Höchstpunktzahl in
+ * unterschiedlichen Runden), nicht nur den ersten gefundenen.
+ * @param {object} game
+ * @returns {{ best: Array<{playerId, name, roundIndex, score}>, worst: Array<{playerId, name, roundIndex, score}> }}
+ */
+export function extremeRounds(game) {
+  const entries = [];
+  for (const round of game.rounds || []) {
+    if (!round.done) continue;
+    for (const p of game.players) {
+      const bid = round.bids?.[p.id];
+      const tricks = round.tricks?.[p.id];
+      if (bid == null || tricks == null) continue;
+      entries.push({ playerId: p.id, name: p.name, roundIndex: round.index, score: roundScore(bid, tricks) });
+    }
+  }
+  if (!entries.length) return { best: [], worst: [] };
+  const maxScore = Math.max(...entries.map((e) => e.score));
+  const minScore = Math.min(...entries.map((e) => e.score));
+  return {
+    best: entries.filter((e) => e.score === maxScore),
+    worst: entries.filter((e) => e.score === minScore),
+  };
+}
+
+/**
+ * Häufigkeit der gelosten Trumpffarben über alle Runden (unabhängig von `done`,
+ * das Losen ist an keine abgeschlossene Runde gebunden).
+ * @param {object} game
+ * @returns {Object<string, number>}
+ */
+export function trumpCounts(game) {
+  const counts = {};
+  for (const c of TRUMP_COLORS) counts[c] = 0;
+  for (const round of game.rounds || []) {
+    if (round.trump) counts[round.trump] = (counts[round.trump] || 0) + 1;
+  }
+  return counts;
+}
+
+/**
+ * Bilanz je Spieler, wie oft er als letzter Ansagender (Geber) dran war —
+ * und was das für ihn bedeutet hat. Jede Geber-Runde fällt in genau eine
+ * von drei Kategorien:
+ * - `neutral`: Geber war zwar dran, aber die verbotene Ansage griff diese
+ *   Runde gar nicht wirklich (kein Wert 0..Kartenzahl wäre "aufgegangen",
+ *   oder `restrictLastBid` ist für das Spiel aus) — reiner theoretischer Malus.
+ * - `malusCorrect`: Einschränkung griff wirklich, Geber lag trotzdem richtig.
+ * - `malusWrong`: Einschränkung griff wirklich, Geber lag falsch.
+ * `dealerRounds = neutral + malusCorrect + malusWrong`.
+ * @param {object} game
+ * @returns {Object<string, {dealerRounds:number, neutral:number, malusCorrect:number, malusWrong:number}>}
+ */
+export function dealerMalusStats(game) {
+  const stats = {};
+  for (const p of game.players) stats[p.id] = { dealerRounds: 0, neutral: 0, malusCorrect: 0, malusWrong: 0 };
+
+  const seated = [...game.players].sort((a, b) => a.seatOrder - b.seatOrder);
+  const restrictActive = game.restrictLastBid !== false;
+
+  for (const round of game.rounds || []) {
+    if (!round.done) continue;
+    const order = biddingOrder(seated, round.index);
+    if (!order.length) continue;
+    const dealer = order[order.length - 1];
+
+    let sumOthers = 0;
+    let allOthersBid = true;
+    for (const p of seated) {
+      if (p.id === dealer.id) continue;
+      const b = round.bids?.[p.id];
+      if (b == null) { allOthersBid = false; break; }
+      sumOthers += b;
+    }
+    const bid = round.bids?.[dealer.id];
+    const tricks = round.tricks?.[dealer.id];
+    if (!allOthersBid || bid == null || tricks == null) continue; // Runde nicht auswertbar
+
+    const s = stats[dealer.id];
+    s.dealerRounds += 1;
+
+    const bound = restrictActive && forbiddenBid(round.cardCount, sumOthers) != null;
+    if (!bound) s.neutral += 1;
+    else if (bid === tricks) s.malusCorrect += 1;
+    else s.malusWrong += 1;
+  }
+  return stats;
 }
 
 /**
@@ -164,4 +402,84 @@ export function tricksCheck(round) {
 /** Zufällige Trumpffarbe (optionaler "Farbe losen"-Knopf). */
 export function randomTrump() {
   return TRUMP_COLORS[Math.floor(Math.random() * TRUMP_COLORS.length)];
+}
+
+/**
+ * Strukturierte Fakten einer einzelnen fertigen Runde — Grundlage für den
+ * regelbasierten Rundenkommentar (siehe commentary.js). Erzeugt nur Daten,
+ * keinen Text: wer hat wie angesagt/gemacht, wer war Held/Flop der Runde,
+ * wie hat sich dadurch die Platzierung verschoben.
+ * @param {object} game
+ * @param {number} roundIndex
+ * @returns {null | object} null, wenn die Runde nicht existiert/nicht fertig ist
+ */
+export function roundEvents(game, roundIndex) {
+  const round = game.rounds?.[roundIndex];
+  if (!round || !round.done) return null;
+
+  const seated = [...game.players].sort((a, b) => a.seatOrder - b.seatOrder);
+  const order = biddingOrder(seated, roundIndex);
+  const dealer = order[order.length - 1];
+
+  const perPlayer = [];
+  for (const p of game.players) {
+    const bid = round.bids?.[p.id];
+    const tricks = round.tricks?.[p.id];
+    if (bid == null || tricks == null) continue;
+    perPlayer.push({
+      playerId: p.id,
+      name: p.name,
+      bid,
+      tricks,
+      score: roundScore(bid, tricks),
+      correct: bid === tricks,
+    });
+  }
+  if (!perPlayer.length) return null;
+
+  const maxScore = Math.max(...perPlayer.map((e) => e.score));
+  const minScore = Math.min(...perPlayer.map((e) => e.score));
+  const heroes = perPlayer.filter((e) => e.score === maxScore);
+  const villains = perPlayer.filter((e) => e.score === minScore);
+  const correctPlayers = perPlayer.filter((e) => e.correct);
+  const wrongPlayers = perPlayer.filter((e) => !e.correct);
+  const zeroBids = perPlayer.filter((e) => e.bid === 0);
+
+  // Rang davor/danach (geteilte Ränge über kumulierte Punkte).
+  const progression = rankProgression(game);
+  const point = progression.find((pt) => pt.roundIndex === roundIndex);
+  const prevPoint = [...progression].reverse().find((pt) => pt.roundIndex < roundIndex);
+  const ranks = point ? point.ranks : {};
+  const prevRanks = prevPoint ? prevPoint.ranks : {};
+
+  const leaderIds = Object.keys(ranks).filter((id) => ranks[id] === 1).sort();
+  const leaders = game.players.filter((p) => leaderIds.includes(p.id));
+  const prevLeaderIds = Object.keys(prevRanks).filter((id) => prevRanks[id] === 1).sort();
+  const leadChanged = prevPoint != null && JSON.stringify(leaderIds) !== JSON.stringify(prevLeaderIds);
+
+  const climbers = perPlayer
+    .map((e) => ({
+      playerId: e.playerId,
+      name: e.name,
+      prevRank: prevRanks[e.playerId] ?? null,
+      rank: ranks[e.playerId] ?? null,
+    }))
+    .filter((e) => e.prevRank != null && e.rank != null && e.prevRank !== e.rank);
+
+  return {
+    roundIndex,
+    cardCount: round.cardCount,
+    dealerName: dealer?.name,
+    perPlayer,
+    heroes,
+    villains,
+    correctPlayers,
+    wrongPlayers,
+    zeroBids,
+    leaders,
+    leadChanged,
+    climbers,
+    allCorrect: wrongPlayers.length === 0,
+    allWrong: correctPlayers.length === 0,
+  };
 }
