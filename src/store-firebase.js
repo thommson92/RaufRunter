@@ -46,15 +46,21 @@ export const fb = {
    * Mehrere Spiele in einem Rutsch schreiben (Zusammenführen/Zuordnen von
    * Profilen). Als Batch, damit nicht die Hälfte der Spiele umgeschrieben
    * zurückbleibt, wenn unterwegs die Verbindung abreißt.
+   *
+   * Achtung: `saveGames` überschreibt ganze Dokumente. Die übergebenen Spiele
+   * müssen deshalb frisch geladen sein, sonst gehen zwischenzeitlich
+   * eingetragene Runden verloren.
    */
   async saveGames(games) {
-    if (!games.length) return;
-    const batch = writeBatch(db);
-    for (const game of games) {
-      game.updatedAt = Date.now();
-      batch.set(gameRef(game.id), game);
+    // Ein Firestore-Batch fasst höchstens 500 Operationen.
+    for (let i = 0; i < games.length; i += 500) {
+      const batch = writeBatch(db);
+      for (const game of games.slice(i, i + 500)) {
+        game.updatedAt = Date.now();
+        batch.set(gameRef(game.id), game);
+      }
+      await batch.commit();
     }
-    await batch.commit();
   },
 
   async deleteGame(id) {

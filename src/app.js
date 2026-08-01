@@ -16,7 +16,7 @@ import {
   remapGameProfile,
   applyProfileNames,
   unassignedPlayers,
-  assignProfile,
+  planNameAssignment,
 } from './profile-model.js';
 import {
   avatarHtml,
@@ -54,11 +54,18 @@ const ui = {
   activeRound: null,  // welche Runde im Eingabe-Panel offen ist
   tableSort: 'seat',  // Punktestand-Sortierung: 'seat' (Sitzreihe) | 'rank' (Punkte)
   tableTranspose: false, // Achsen tauschen: false = Spieler-Zeilen, true = Runden-Zeilen
-  lottery: null, // { names, winner } während der Geber-Auslosung beim Anlegen (#/new)
-  pickerQuery: {}, // Sucheingabe je Combobox (Schlüssel = data-i), nur während des Tippens
+  lottery: null, // { profiles, winner } während der Geber-Auslosung beim Anlegen (#/new)
+  pickerQuery: {}, // Sucheingabe je Combobox (Schlüssel = data-i)
   adminUnlocked: false, // Passwort im Admin-Bereich eingegeben (nur für diese Sitzung)
-  admin: null, // { games, mergeFrom, mergeTo, busy } im Admin-Bereich
+  admin: null, // { games, mergeFrom, mergeTo } im Admin-Bereich
 };
+
+/**
+ * data-i-Präfix der Comboboxen in der Verwaltung („alte Runden zuordnen").
+ * Der Schlüssel ist zugleich der Unterscheider zwischen den beiden
+ * Einsatzorten der Combobox — siehe pickerStateFor().
+ */
+const ASSIGN_PREFIX = 'assign:';
 
 // Nur eine einfache Hürde gegen versehentliches Löschen/Zusammenführen, keine
 // echte Auth — bewusst im Client hinterlegt. Schützt: Spiel löschen, Profil
@@ -166,6 +173,26 @@ function renderActiveView() {
   }
 }
 
+/**
+ * Solange die Profile fehlen, kann keine Ansicht sinnvoll rendern. Ein Fehler
+ * (typisch: fehlende Firestore-Regel) muss dabei sichtbar werden — sonst steht
+ * die App ohne Erklärung still.
+ * @returns {boolean} true, wenn stattdessen ein Platzhalter gerendert wurde
+ */
+function renderProfileGate() {
+  if (profiles.error) {
+    appEl.innerHTML = `
+      <div class="topbar"><button class="icon-btn btn-ghost" data-action="home">‹</button><h1>Spielerprofile</h1></div>
+      <div class="card"><p style="margin:0">⚠️ ${esc(profiles.error)}</p></div>`;
+    return true;
+  }
+  if (!profiles.isLoaded) {
+    renderLoading('Lade Spielerprofile …');
+    return true;
+  }
+  return false;
+}
+
 function renderLoading(text = 'Lädt …') {
   appEl.innerHTML = `
     <div class="topbar"><button class="icon-btn btn-ghost" data-action="home">‹</button><h1>Rauf Runter</h1></div>
@@ -202,7 +229,7 @@ async function renderHome() {
             ? new Date(g.createdAt).toLocaleDateString('de-DE')
             : null;
           return `
-            <button class="card list-item" data-action="open" data-id="${g.id}">
+            <button class="card list-item" data-action="open" data-id="${esc(g.id)}">
               <div class="meta">
                 <strong>${esc(g.name)}</strong><br/>
                 <small>${date ? `${date} · ` : ''}${g.players.length} Spieler · Runde ${Math.min(done + 1, total)}/${total}${
@@ -234,33 +261,40 @@ async function renderHome() {
  * im Admin-Bereich stehen alle Profile zur Wahl.
  * @param {string} key data-i der Box
  * @param {string} query aktuelle Eingabe
- * @param {boolean} open
  */
-function pickerStateFor(key, query, open) {
-  if (currentRoute().view === 'new' && ui.draft) {
-    const index = +key;
-    const otherSeats = ui.draft.players.filter((id, i) => id && i !== index);
+function pickerStateFor(key, query) {
+  const all = profiles.all();
+  // Der Schlüssel sagt, wo die Box steht — bewusst nicht die Route: sonst gäbe
+  // es zwei Wahrheiten über denselben Sachverhalt (hier und im Klick-Handler),
+  // und ein dritter Einsatzort bräche stillschweigend beide.
+  if (key.startsWith(ASSIGN_PREFIX)) {
     return {
       key,
-      profile: profiles.byId(ui.draft.players[index]),
+      profile: null,
       query,
-      open,
-      matches: matchProfiles(profiles.all(), query, { excludeIds: otherSeats }),
+      matches: matchProfiles(all, query),
+      nameTaken: isNameTaken(all, query),
+      placeholder: 'Profil suchen …',
     };
   }
+  const index = +key;
+  const seats = ui.draft ? ui.draft.players : [];
   return {
     key,
-    profile: null,
+    profile: profiles.byId(seats[index]),
     query,
-    open,
-    matches: matchProfiles(profiles.all(), query),
-    placeholder: 'Profil suchen …',
+    matches: matchProfiles(all, query, {
+      excludeIds: seats.filter((id, i) => id && i !== index),
+    }),
+    // Gegen ALLE Profile prüfen, nicht nur gegen die angezeigten Treffer: ein
+    // schon auf einem anderen Sitz gewähltes Profil ist hier ausgeblendet.
+    nameTaken: isNameTaken(all, query),
   };
 }
 
 function renderNew() {
   if (ui.lottery) return renderDealerLottery();
-  if (!profiles.isLoaded) return renderLoading('Lade Spielerprofile …');
+  if (renderProfileGate()) return;
   if (!ui.draft) {
     ui.draft = {
       name: '',
@@ -277,7 +311,7 @@ function renderNew() {
       (_, i) => `
       <div class="player-row">
         <span class="seat">${i + 1}</span>
-        ${pickerHtml(pickerStateFor(String(i), ui.pickerQuery[i] || '', false))}
+        ${pickerHtml(pickerStateFor(String(i), ui.pickerQuery[i] || ''))}
         <button class="icon-btn btn-ghost" data-action="rm-player" data-i="${i}" ${
         d.players.length <= 2 ? 'disabled' : ''
       }>✕</button>
@@ -364,7 +398,7 @@ function onWheelSettled(winnerIndex) {
 }
 
 /** Legt das Spiel an (mit gegebener Spielerreihenfolge), speichert & navigiert hin. */
-async function createAndEnterGame(seatedProfiles) {
+function createAndEnterGame(seatedProfiles) {
   const newGame = createGame({
     name: ui.draft.name,
     maxCards: ui.draft.maxCards,
@@ -372,17 +406,24 @@ async function createAndEnterGame(seatedProfiles) {
     restrictLastBid: ui.draft.restrictLastBid !== false,
     upOnly: ui.draft.upOnly === true,
   });
-  try {
-    await fb.saveGame(newGame);
-  } catch (err) {
-    console.error(err);
-    alert('Spiel konnte nicht angelegt werden – bist du online?');
-    return;
-  }
-  ui.draft = null;
-  ui.lottery = null;
+  // Bewusst ohne await — wie in saveCurrent(): Firestore löst das Promise erst
+  // bei Server-Bestätigung auf, offline also nie. Wir würden nicht navigieren,
+  // und ein zweiter Tipp legte ein zweites Spiel an. Der lokale Cache kennt das
+  // Spiel sofort, der Write wird nachgeholt.
+  fb.saveGame(newGame).catch((e) => {
+    console.error(e);
+    alert('Speichern fehlgeschlagen – bist du online? Das Spiel wird nachgetragen, sobald wieder Verbindung besteht.');
+  });
+  resetDraft();
   ui.activeRound = null;
   navigate('/game/' + newGame.id);
+}
+
+/** Formular-Zustand des "Neues Spiel"-Entwurfs vollständig verwerfen. */
+function resetDraft() {
+  ui.draft = null;
+  ui.lottery = null;
+  ui.pickerQuery = {};
 }
 
 function renderPlayers() {
@@ -394,18 +435,18 @@ function renderPlayers() {
     .map((p, i) => {
       const profile = profileOf(p);
       const label = profile
-        ? `<button class="btn-ghost btn-sm player-profile-link" data-action="profile" data-pid="${profile.id}">
+        ? `<button class="btn-ghost btn-sm player-profile-link" data-action="profile" data-pid="${esc(profile.id)}">
              ${avatarNameHtml(profile, profile.name, 28)}
            </button>`
         : `<span class="player-profile-link">${avatarNameHtml(null, p.name, 28)}</span>`;
       return `
-      <div class="player-row" data-pid="${p.id}">
+      <div class="player-row" data-pid="${esc(p.id)}">
         <span class="seat">${i + 1}</span>
         ${label}
-        <button class="icon-btn btn-ghost" data-action="seat-up" data-pid="${p.id}" ${
+        <button class="icon-btn btn-ghost" data-action="seat-up" data-pid="${esc(p.id)}" ${
           i === 0 ? 'disabled' : ''
         }>▲</button>
-        <button class="icon-btn btn-ghost" data-action="seat-down" data-pid="${p.id}" ${
+        <button class="icon-btn btn-ghost" data-action="seat-down" data-pid="${esc(p.id)}" ${
           i === seated.length - 1 ? 'disabled' : ''
         }>▼</button>
       </div>`;
@@ -414,14 +455,14 @@ function renderPlayers() {
 
   appEl.innerHTML = `
     <div class="topbar">
-      <button class="icon-btn btn-ghost" data-action="open" data-id="${game.id}">‹</button>
+      <button class="icon-btn btn-ghost" data-action="open" data-id="${esc(game.id)}">‹</button>
       <h1>Spieler</h1>
     </div>
     <div class="card">
       <p class="muted" style="margin-top:0">Reihenfolge per ▲▼ ändern. Punkte bleiben erhalten. Namen und Bilder kommen aus dem Spielerprofil – tippe auf einen Namen, um es zu bearbeiten.</p>
       ${rows}
     </div>
-    <button class="btn-primary" data-action="open" data-id="${game.id}" style="width:100%">Fertig</button>
+    <button class="btn-primary" data-action="open" data-id="${esc(game.id)}" style="width:100%">Fertig</button>
   `;
 }
 
@@ -429,17 +470,26 @@ function renderPlayers() {
 
 /** Übersicht aller Profile — jeder darf hier neue anlegen. */
 async function renderProfileList() {
-  if (!profiles.isLoaded) return renderLoading('Lade Spielerprofile …');
+  if (renderProfileGate()) return;
   const list = matchProfiles(profiles.all(), '');
   const games = await loadGamesQuietly();
-  const countOf = (id) => gamesUsingProfile(games, id).length;
+  if (currentRoute().view !== 'profiles' || currentRoute().id) return; // inzwischen weggenavigiert
+
+  // Ein Durchlauf statt einer Suche pro Profil.
+  const counts = new Map();
+  for (const game of games) {
+    for (const p of game.players) {
+      if (p.profileId) counts.set(p.profileId, (counts.get(p.profileId) || 0) + 1);
+    }
+  }
+  const countOf = (id) => counts.get(id) || 0;
 
   const cards = list.length
     ? list
         .map((p) => {
           const n = countOf(p.id);
           return `
-          <button class="profile-tile" data-action="profile" data-pid="${p.id}">
+          <button class="profile-tile" data-action="profile" data-pid="${esc(p.id)}">
             ${avatarHtml(p, 64)}
             <strong>${esc(p.name)}</strong>
             <small class="muted">${n === 1 ? '1 Spiel' : `${n} Spiele`}</small>
@@ -470,7 +520,7 @@ async function renderProfileList() {
 
 /** Einzelnes Profil: Name & Profilbild ändern, löschen. */
 async function renderProfileEditor(id) {
-  if (!profiles.isLoaded) return renderLoading('Lade Spielerprofile …');
+  if (renderProfileGate()) return;
   const profile = profiles.byId(id);
   if (!profile) {
     appEl.innerHTML = `
@@ -492,10 +542,10 @@ async function renderProfileEditor(id) {
     <div class="card center">
       <div class="profile-hero">${avatarHtml(profile, 120)}</div>
       <div class="btn-row" style="margin-top:14px">
-        <button class="btn-ghost" data-action="roll-avatar" data-pid="${profile.id}">🎲 Anderes Muster</button>
-        <button class="btn-ghost" data-action="pick-photo" data-pid="${profile.id}">📷 Foto wählen</button>
+        <button class="btn-ghost" data-action="roll-avatar" data-pid="${esc(profile.id)}">🎲 Anderes Muster</button>
+        <button class="btn-ghost" data-action="pick-photo" data-pid="${esc(profile.id)}">📷 Foto wählen</button>
       </div>
-      <input type="file" accept="image/*" data-photo-input hidden />
+      <input type="file" accept="image/*" data-photo-input="${esc(profile.id)}" hidden />
       <p class="muted" style="margin:12px 0 0;font-size:0.8rem">
         Jedes Profilbild ist eindeutig – ein bereits vergebenes Muster wird nie ein zweites Mal vergeben.
       </p>
@@ -504,7 +554,7 @@ async function renderProfileEditor(id) {
       <label>Name</label>
       <div class="row">
         <input data-field="profile-name" value="${esc(profile.name)}" autocomplete="off" />
-        <button class="btn-primary" data-action="save-profile-name" data-pid="${profile.id}" style="flex:0 0 auto">Speichern</button>
+        <button class="btn-primary" data-action="save-profile-name" data-pid="${esc(profile.id)}" style="flex:0 0 auto">Speichern</button>
       </div>
       <p class="muted" style="margin:10px 0 0;font-size:0.8rem">
         Der Name wird in allen ${used.length === 1 ? '1 Spiel' : `${used.length} Spielen`} nachgezogen – auch rückwirkend.
@@ -516,7 +566,7 @@ async function renderProfileEditor(id) {
         used.length
           ? used
               .map(
-                (g) => `<button class="card list-item" data-action="open" data-id="${g.id}">
+                (g) => `<button class="card list-item" data-action="open" data-id="${esc(g.id)}">
                   <div class="meta"><strong>${esc(g.name)}</strong><br/>
                   <small>${g.createdAt ? new Date(g.createdAt).toLocaleDateString('de-DE') : ''}</small></div>
                   <span class="muted">›</span></button>`,
@@ -525,7 +575,7 @@ async function renderProfileEditor(id) {
           : '<p class="muted" style="margin:0">Noch kein Spiel gespielt.</p>'
       }
     </div>
-    <button class="btn-danger" data-action="delete-profile" data-pid="${profile.id}" style="width:100%">
+    <button class="btn-danger" data-action="delete-profile" data-pid="${esc(profile.id)}" style="width:100%">
       Profil löschen
     </button>
   `;
@@ -547,7 +597,7 @@ async function loadGamesQuietly() {
 // ---------- Verwaltung ----------
 
 async function renderAdmin() {
-  if (!profiles.isLoaded) return renderLoading('Lade Spielerprofile …');
+  if (renderProfileGate()) return;
   if (!ui.adminUnlocked) {
     appEl.innerHTML = `
       <div class="topbar">
@@ -565,7 +615,21 @@ async function renderAdmin() {
     appEl.innerHTML = `
       <div class="topbar"><button class="icon-btn btn-ghost" data-action="profiles">‹</button><h1>Verwaltung</h1></div>
       <div class="empty">Lade Spiele …</div>`;
-    const games = await loadGamesQuietly();
+    let games;
+    try {
+      games = await fb.listGames();
+    } catch (e) {
+      // Hier darf keine stille leere Liste durchrutschen: sie sähe aus wie
+      // „alles zugeordnet, keine Konflikte" und würde beim Zusammenführen zu
+      // einem Profil-Löschen ohne Umhängen führen.
+      console.error(e);
+      if (currentRoute().view !== 'admin') return;
+      appEl.innerHTML = `
+        <div class="topbar"><button class="icon-btn btn-ghost" data-action="profiles">‹</button><h1>Verwaltung</h1></div>
+        <div class="card"><p style="margin:0">⚠️ Die Spiele konnten nicht geladen werden. Ohne sie lässt sich nichts sicher zusammenführen oder zuordnen.</p></div>
+        <button class="btn-ghost" data-action="admin-reload" style="width:100%">↻ Erneut versuchen</button>`;
+      return;
+    }
     if (currentRoute().view !== 'admin') return;
     ui.admin = { games, mergeFrom: null, mergeTo: null };
   }
@@ -642,7 +706,7 @@ function assignCard(games) {
             [...new Set(g.entries.map((e) => e.gameName))].join(', '),
           )}</small>
         </div>
-        ${pickerHtml(pickerStateFor(key, ui.pickerQuery[key] || g.name, false))}
+        ${pickerHtml(pickerStateFor(key, ui.pickerQuery[key] || g.name))}
       </div>`;
     })
     .join('');
@@ -693,7 +757,7 @@ function entryPanel(game) {
         const sel = round.bids[p.id] === v;
         pills.push(
           `<button class="bid-pill ${sel ? 'selected' : ''} ${forbidden ? 'forbidden' : ''}"
-            data-action="set-bid" data-pid="${p.id}" data-v="${v}" ${forbidden ? 'disabled' : ''}>${v}</button>`,
+            data-action="set-bid" data-pid="${esc(p.id)}" data-v="${v}" ${forbidden ? 'disabled' : ''}>${v}</button>`,
         );
       }
       return `
@@ -716,7 +780,7 @@ function entryPanel(game) {
           const sel = round.tricks[p.id] === v;
           pills.push(
             `<button class="bid-pill ${sel ? 'selected' : ''}"
-              data-action="set-trick" data-pid="${p.id}" data-v="${v}">${v}</button>`,
+              data-action="set-trick" data-pid="${esc(p.id)}" data-v="${v}">${v}</button>`,
           );
         }
         return `
@@ -1007,16 +1071,16 @@ function renderScorer() {
     <div class="topbar">
       <button class="icon-btn btn-ghost" data-action="home">‹</button>
       <h1>${esc(game.name)}</h1>
-      <button class="icon-btn btn-ghost" data-action="players" data-id="${game.id}" title="Spieler">👥</button>
-      <button class="icon-btn btn-ghost" data-action="share" data-id="${game.id}" title="Teilen">🔗</button>
+      <button class="icon-btn btn-ghost" data-action="players" data-id="${esc(game.id)}" title="Spieler">👥</button>
+      <button class="icon-btn btn-ghost" data-action="share" data-id="${esc(game.id)}" title="Teilen">🔗</button>
     </div>
     ${entryPanel(game)}
     ${roundsHistory(game)}
     ${standingsTable(game)}
     <div class="card">
       <div class="btn-row">
-        <button class="btn-ghost" data-action="view" data-id="${game.id}">👁 Zuschauer-Ansicht</button>
-        <button class="btn-danger" data-action="delete" data-id="${game.id}">Spiel löschen</button>
+        <button class="btn-ghost" data-action="view" data-id="${esc(game.id)}">👁 Zuschauer-Ansicht</button>
+        <button class="btn-danger" data-action="delete" data-id="${esc(game.id)}">Spiel löschen</button>
       </div>
     </div>
   `;
@@ -1031,7 +1095,7 @@ function renderViewer() {
   const done = game.rounds.filter((r) => r.done).length;
   appEl.innerHTML = `
     <div class="topbar">
-      <button class="icon-btn btn-ghost" data-action="open" data-id="${game.id}">‹</button>
+      <button class="icon-btn btn-ghost" data-action="open" data-id="${esc(game.id)}">‹</button>
       <h1>${esc(game.name)} <span class="pill">live</span></h1>
     </div>
     <p class="muted progress" style="margin-top:0">Runde ${Math.min(done + 1, game.rounds.length)}/${
@@ -1239,9 +1303,6 @@ function mountStatsCharts(game) {
 // Offen/zu wird direkt am DOM geschaltet statt über einen Re-Render — sonst
 // verlöre das Eingabefeld bei jedem Tastendruck den Fokus.
 
-/** data-i-Präfix der Comboboxen in der Verwaltung („alte Runden zuordnen"). */
-const ASSIGN_PREFIX = 'assign:';
-
 /** Sucheingaben aller sichtbaren Comboboxen in den UI-Zustand übernehmen. */
 function syncPickerQueries() {
   appEl.querySelectorAll('[data-pquery]').forEach((inp) => {
@@ -1268,7 +1329,7 @@ function closePickers(except = null) {
 function refreshPickerOptions(input) {
   const list = input.closest('.picker')?.querySelector('[data-picker-list]');
   if (!list) return;
-  list.innerHTML = pickerOptionsHtml(pickerStateFor(input.dataset.pquery, input.value, true));
+  list.innerHTML = pickerOptionsHtml(pickerStateFor(input.dataset.pquery, input.value));
 }
 
 /** Profil auf einen Sitzplatz im "Neues Spiel"-Formular setzen. */
@@ -1277,6 +1338,15 @@ function selectDraftProfile(index, profileId) {
   ui.draft.players[index] = profileId;
   delete ui.pickerQuery[index];
   renderNew();
+}
+
+/** Ein gewähltes oder frisch angelegtes Profil dorthin geben, wo die Box steht. */
+async function applyPickedProfile(key, profile) {
+  if (key.startsWith(ASSIGN_PREFIX)) {
+    await assignNameToProfile(key.slice(ASSIGN_PREFIX.length), profile);
+  } else {
+    selectDraftProfile(+key, profile.id);
+  }
 }
 
 // ---------- Aktionen ----------
@@ -1300,7 +1370,7 @@ function readDraftFromInputs() {
  * Spielerauswahl beim Anlegen einer Runde und die Profil-Übersicht.
  * @returns {Promise<object|null>} null, wenn abgelehnt oder fehlgeschlagen
  */
-async function createProfileFromInput(rawName) {
+function createProfileFromInput(rawName) {
   const name = String(rawName).trim();
   if (!name) {
     alert('Bitte zuerst einen Namen eintippen.');
@@ -1311,15 +1381,20 @@ async function createProfileFromInput(rawName) {
     return null;
   }
   const profile = createProfile({ name });
-  // Startbild garantiert unterscheidbar von allen vorhandenen Profilen.
-  profile.avatar = rollUniqueIdenticon(profiles.all());
   try {
-    await profiles.save(profile);
+    // Startbild garantiert unterscheidbar von allen vorhandenen Profilen.
+    profile.avatar = rollUniqueIdenticon(profiles.all());
   } catch (e) {
     console.error(e);
-    alert('Profil konnte nicht gespeichert werden – bist du online?');
+    alert('Es ist kein freies Profilbild-Muster mehr übrig.');
     return null;
   }
+  // Ohne await (siehe createAndEnterGame): der Profil-Cache kennt es sofort,
+  // sonst hinge das Anlegen offline und ein zweiter Tipp legte ein Duplikat an.
+  profiles.save(profile).catch((e) => {
+    console.error(e);
+    alert('Speichern fehlgeschlagen – bist du online? Das Profil wird nachgetragen, sobald wieder Verbindung besteht.');
+  });
   return profile;
 }
 
@@ -1330,46 +1405,90 @@ async function renameProfile(profile, rawName) {
   if (isNameTaken(profiles.all(), name, profile.id)) {
     return alert(`„${name}" gibt es schon. Zum Verschmelzen die Verwaltung nutzen.`);
   }
+
+  const previous = profile.name;
   profile.name = name;
   try {
     await profiles.save(profile);
+  } catch (e) {
+    console.error(e);
+    profile.name = previous;
+    renderActiveView();
+    return alert('Umbenennen fehlgeschlagen – bist du online?');
+  }
+
+  // Das Profil ist die einzige Wahrheit — der neue Name wird auch rückwirkend
+  // in alte Runden geschrieben. Getrennter try-Block: das Profil ist zu diesem
+  // Zeitpunkt schon umbenannt, ein Fehler hier ist ein *anderer* Zustand.
+  try {
     const games = await fb.listGames();
-    // Das Profil ist die einzige Wahrheit — auch rückwirkend in alten Runden.
     const touched = games.filter((g) => applyProfileNames(g, profiles.byIdMap()));
     await fb.saveGames(touched);
   } catch (e) {
     console.error(e);
-    alert('Umbenennen fehlgeschlagen – bist du online?');
+    alert(
+      `Das Profil heißt jetzt „${name}", aber die alten Runden konnten nicht angepasst werden.\n\n` +
+        'Bitte bei bestehender Verbindung noch einmal speichern.',
+    );
   }
   renderActiveView();
 }
 
 /** Profilbild setzen (Identicon-Muster oder Foto). */
 async function setAvatar(profile, avatar) {
+  const previous = profile.avatar;
   profile.avatar = avatar;
   try {
     await profiles.save(profile);
   } catch (e) {
     console.error(e);
+    profile.avatar = previous;
     alert('Profilbild konnte nicht gespeichert werden – bist du online?');
   }
   renderActiveView();
 }
 
-/** Alle Bestands-Einträge eines Namens auf ein Profil legen (Verwaltung). */
-async function assignNameToProfile(name, profile) {
-  const group = unassignedPlayers(ui.admin.games).find((g) => g.name === name);
-  if (!group) return;
-  const touched = new Map();
-  for (const entry of group.entries) {
-    const game = ui.admin.games.find((g) => g.id === entry.gameId);
-    if (game && assignProfile(game, entry.playerId, profile)) touched.set(game.id, game);
-  }
+/**
+ * Spiele frisch laden, bevor die Verwaltung sie umschreibt.
+ * `fb.saveGames` überschreibt ganze Dokumente — mit einem beim Öffnen der
+ * Verwaltung eingefrorenen Stand würden zwischenzeitlich gespielte Runden
+ * verloren gehen.
+ * @returns {Promise<object[]|null>} null, wenn das Laden fehlgeschlagen ist
+ */
+async function freshGamesForAdmin() {
   try {
-    await fb.saveGames([...touched.values()]);
+    const games = await fb.listGames();
+    ui.admin.games = games;
+    return games;
   } catch (e) {
     console.error(e);
-    alert('Zuordnen fehlgeschlagen – bist du online?');
+    alert('Die Spiele konnten nicht geladen werden – bist du online? Es wurde nichts geändert.');
+    return null;
+  }
+}
+
+/** Alle Bestands-Einträge eines Namens auf ein Profil legen (Verwaltung). */
+async function assignNameToProfile(name, profile) {
+  const games = await freshGamesForAdmin();
+  if (!games) return renderActiveView();
+
+  const plan = planNameAssignment(games, name, profile);
+  if (plan.conflicts.length) {
+    renderActiveView();
+    return alert(
+      `Nicht möglich: In ${plan.conflicts
+        .map((g) => `„${g.name}"`)
+        .join(', ')} sitzt „${profile.name}" schon am Tisch. Das wären zwei Sitzplätze für eine Person.`,
+    );
+  }
+
+  try {
+    await fb.saveGames(plan.touched);
+  } catch (e) {
+    console.error(e);
+    ui.admin = null; // mutierten Speicherstand verwerfen, sonst sieht es erledigt aus
+    renderActiveView();
+    return alert('Zuordnen fehlgeschlagen – bist du online?');
   }
   delete ui.pickerQuery[ASSIGN_PREFIX + name];
   renderActiveView();
@@ -1381,8 +1500,12 @@ async function mergeProfiles() {
   const to = profiles.byId(ui.admin.mergeTo);
   if (!from || !to || from.id === to.id) return;
 
-  const conflicts = findMergeConflicts(ui.admin.games, from.id, to.id);
+  const games = await freshGamesForAdmin();
+  if (!games) return renderActiveView();
+
+  const conflicts = findMergeConflicts(games, from.id, to.id);
   if (conflicts.length) {
+    renderActiveView();
     return alert(
       `Nicht möglich: In ${conflicts
         .map((g) => `„${g.name}"`)
@@ -1390,13 +1513,16 @@ async function mergeProfiles() {
     );
   }
 
-  const affected = gamesUsingProfile(ui.admin.games, from.id);
+  const affected = gamesUsingProfile(games, from.id);
   const scope = affected.length === 1 ? '1 Spiel wird' : `${affected.length} Spiele werden`;
   if (!confirm(`„${from.name}" in „${to.name}" auflösen?\n\n${scope} umgeschrieben, „${from.name}" wird gelöscht.`)) return;
   if (!askPassword(`Profile zusammenführen: „${from.name}" → „${to.name}".`)) return;
 
   affected.forEach((g) => remapGameProfile(g, from.id, to.id, to.name));
   try {
+    // Erst die Spiele umhängen, dann das Profil löschen — andersherum bliebe
+    // bei einem Fehler eine profileId ohne Profil zurück, die sich über die
+    // Verwaltung nicht mehr reparieren lässt.
     await fb.saveGames(affected);
     await profiles.remove(from.id);
   } catch (e) {
@@ -1434,7 +1560,7 @@ async function onClick(e) {
       navigate('/');
       break;
     case 'new':
-      ui.draft = null;
+      resetDraft();
       navigate('/new');
       break;
     case 'open':
@@ -1485,17 +1611,13 @@ async function onClick(e) {
     case 'pick-profile': {
       syncPickerQueries();
       const profile = profiles.byId(pid);
-      if (!profile) break;
-      if (i.startsWith(ASSIGN_PREFIX)) await assignNameToProfile(i.slice(ASSIGN_PREFIX.length), profile);
-      else selectDraftProfile(+i, profile.id);
+      if (profile) await applyPickedProfile(i, profile);
       break;
     }
     case 'create-profile': {
       syncPickerQueries();
-      const profile = await createProfileFromInput(ui.pickerQuery[i] || '');
-      if (!profile) break;
-      if (i.startsWith(ASSIGN_PREFIX)) await assignNameToProfile(i.slice(ASSIGN_PREFIX.length), profile);
-      else selectDraftProfile(+i, profile.id);
+      const profile = createProfileFromInput(ui.pickerQuery[i] || '');
+      if (profile) await applyPickedProfile(i, profile);
       break;
     }
     case 'picker-clear':
@@ -1508,7 +1630,7 @@ async function onClick(e) {
     case 'add-profile': {
       const input = appEl.querySelector('[data-field="new-profile"]');
       if (!input) break;
-      const profile = await createProfileFromInput(input.value);
+      const profile = createProfileFromInput(input.value);
       if (profile) navigate('/profiles/' + profile.id);
       break;
     }
@@ -1520,7 +1642,13 @@ async function onClick(e) {
     }
     case 'roll-avatar': {
       const profile = profiles.byId(pid);
-      if (profile) await setAvatar(profile, rollUniqueIdenticon(profiles.all(), profile.id));
+      if (!profile) break;
+      try {
+        await setAvatar(profile, rollUniqueIdenticon(profiles.all(), profile.id));
+      } catch (err) {
+        console.error(err);
+        alert('Es ist kein freies Profilbild-Muster mehr übrig.');
+      }
       break;
     }
     case 'pick-photo':
@@ -1529,7 +1657,18 @@ async function onClick(e) {
     case 'delete-profile': {
       const profile = profiles.byId(pid);
       if (!profile) break;
-      const used = gamesUsingProfile(await loadGamesQuietly(), profile.id);
+      // Bewusst NICHT loadGamesQuietly: dessen leere Liste bei einem Ladefehler
+      // sähe hier aus wie "wird nirgends benutzt" und gäbe das Profil zum
+      // Löschen frei. Ein Profil ohne Spiel ist über die UI nicht mehr zu
+      // reparieren (unassignedPlayers findet Spieler mit profileId nicht).
+      let games;
+      try {
+        games = await fb.listGames();
+      } catch (err) {
+        console.error(err);
+        return alert('Die Spiele konnten nicht geprüft werden – bist du online? Es wurde nichts gelöscht.');
+      }
+      const used = gamesUsingProfile(games, profile.id);
       if (used.length) {
         alert(
           `„${profile.name}" spielt in ${used.length === 1 ? '1 Runde' : `${used.length} Runden`} mit und kann deshalb nicht gelöscht werden.\n\n` +
@@ -1564,6 +1703,17 @@ async function onClick(e) {
 
     case 'start': {
       readDraftFromInputs();
+      // Angetippter, aber nicht bestätigter Text ist kein Mitspieler — darauf
+      // hinweisen, statt die Zeile beim Start stillschweigend zu schlucken.
+      const unconfirmed = ui.draft.players
+        .map((profileId, idx) => (profileId ? null : (ui.pickerQuery[idx] || '').trim()))
+        .filter(Boolean);
+      if (unconfirmed.length) {
+        return alert(
+          `Noch nicht ausgewählt: ${unconfirmed.map((n) => `„${n}"`).join(', ')}.\n\n` +
+            'Bitte aus der Vorschlagsliste auswählen oder als neues Profil anlegen.',
+        );
+      }
       const seated = ui.draft.players.map((profileId) => profiles.byId(profileId)).filter(Boolean);
       if (seated.length < 2) {
         return alert('Bitte mindestens 2 Spieler auswählen – jeder Mitspieler braucht ein Profil.');
@@ -1573,7 +1723,7 @@ async function onClick(e) {
         renderNew();
         break;
       }
-      await createAndEnterGame(seated);
+      createAndEnterGame(seated);
       break;
     }
 
@@ -1585,7 +1735,7 @@ async function onClick(e) {
     case 'lottery-continue': {
       if (!ui.lottery || ui.lottery.winner == null) break;
       const ordered = rotateToStart(ui.lottery.profiles, ui.lottery.winner);
-      await createAndEnterGame(ordered);
+      createAndEnterGame(ordered);
       break;
     }
 
@@ -1691,7 +1841,7 @@ async function onChange(e) {
   // Foto für ein Profilbild gewählt
   if (e.target.closest('[data-photo-input]')) {
     const file = e.target.files?.[0];
-    const profile = profiles.byId(currentRoute().id);
+    const profile = profiles.byId(e.target.dataset.photoInput);
     e.target.value = ''; // gleiche Datei erneut wählbar
     if (!file || !profile) return;
     try {
@@ -1739,8 +1889,22 @@ route();
 
 // Profile sind für fast jede Ansicht nötig (Namen & Bilder) und wenige, kleine
 // Dokumente — deshalb einmal komplett abonnieren statt pro Ansicht nachzuladen.
+let lastProfileSignature = null;
 profiles.subscribe(() => {
-  // Nicht mitten in eine offene Suchliste hineinrendern (Fokus & Tipp-Stand).
+  // Firestore feuert auch für den eigenen Echo-Write und für Feldänderungen,
+  // die keine Ansicht betreffen. Ohne diesen Vergleich würde jeder fremde
+  // Snapshot die aktive Ansicht neu bauen — inklusive Charts, Tabellen-Scroll
+  // und laufendem Glücksrad.
+  const signature = profiles.signature();
+  if (signature === lastProfileSignature) return;
+  lastProfileSignature = signature;
+
+  // Nicht in eine offene Suchliste hineinrendern (Fokus & Tipp-Stand).
   if (appEl.querySelector('.picker.open')) return;
+  // Das drehende Glücksrad hängt am DOM-Knoten: neu rendern hieße, die
+  // laufende Auslosung ohne Ergebnis wegzuwerfen.
+  if (ui.lottery) return;
+  // Getippte Formularwerte retten, bevor aus ui.draft neu gebaut wird.
+  if (currentRoute().view === 'new') readDraftFromInputs();
   renderActiveView();
 });

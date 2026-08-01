@@ -4,11 +4,13 @@
 // wenige, kleine Dokumente, aber fast jede Ansicht braucht sie (Namensauswahl,
 // Avatare). Ein einziges Collection-Abo hält den Cache aktuell und liefert
 // nebenbei Live-Updates, wenn jemand auf einem anderen Gerät ein Profil anlegt.
+//
+// Der Cache wird beim Abo-Start gefüllt; einen separaten Ladeweg gibt es
+// bewusst nicht, sonst gäbe es zwei Pfade, die dasselbe tun.
 
 import {
   collection,
   doc,
-  getDocs,
   setDoc,
   deleteDoc,
   onSnapshot,
@@ -21,11 +23,17 @@ const profileRef = (id) => doc(db, PLAYERS, id);
 /** id -> Profil. Einzige Quelle für alle Render-Pfade. */
 const cache = new Map();
 let loaded = false;
+let loadError = null;
 
 export const profiles = {
   /** Sind die Profile schon einmal geladen worden? */
   get isLoaded() {
     return loaded;
+  },
+
+  /** Fehlermeldung, falls das Abo scheitert (z.B. fehlende Firestore-Regel). */
+  get error() {
+    return loadError;
   },
 
   /** Alle Profile aus dem Cache (ungeordnet — Sortierung macht matchProfiles). */
@@ -37,18 +45,20 @@ export const profiles = {
     return (id && cache.get(id)) || null;
   },
 
-  /** Map für applyProfileNames(). */
+  /** Kopie als Map für applyProfileNames() — der interne Cache bleibt gekapselt. */
   byIdMap() {
-    return cache;
+    return new Map(cache);
   },
 
-  /** Einmalig laden (z. B. beim Start), bevor das Live-Abo greift. */
-  async load() {
-    const snap = await getDocs(collection(db, PLAYERS));
-    cache.clear();
-    snap.docs.forEach((d) => cache.set(d.id, d.data()));
-    loaded = true;
-    return this.all();
+  /**
+   * Kurzer Fingerabdruck des Cache-Inhalts. Damit erkennt die App, ob ein
+   * Snapshot überhaupt etwas geändert hat, das eine Ansicht betrifft.
+   */
+  signature() {
+    return [...cache.values()]
+      .map((p) => `${p.id}:${p.name}:${p.avatar?.key || p.avatar?.dataUrl?.length || ''}`)
+      .sort()
+      .join('|');
   },
 
   /**
@@ -60,12 +70,29 @@ export const profiles = {
     return onSnapshot(
       collection(db, PLAYERS),
       (snap) => {
-        cache.clear();
-        snap.docs.forEach((d) => cache.set(d.id, d.data()));
+        // Nur die Deltas anwenden: ein voller Neuaufbau würde bei jedem
+        // Snapshot alle Profile inkl. Foto-Data-URLs neu deserialisieren.
+        for (const change of snap.docChanges()) {
+          if (change.type === 'removed') cache.delete(change.doc.id);
+          // Die Dokument-ID gewinnt über das Feld — sonst zeigte eine Kachel
+          // mit abweichendem id-Feld ins Leere.
+          else cache.set(change.doc.id, { ...change.doc.data(), id: change.doc.id });
+        }
+        loaded = true;
+        loadError = null;
+        cb();
+      },
+      (err) => {
+        console.error('Profil-Abo fehlgeschlagen:', err);
+        // Ohne diese Rückmeldung blieben #/new, #/profiles und #/admin
+        // dauerhaft auf "Lade Spielerprofile …" stehen.
+        loadError =
+          err?.code === 'permission-denied'
+            ? 'Kein Zugriff auf die Spielerprofile. Fehlt die Firestore-Regel für die Sammlung „players"? (siehe docs/FIREBASE-SETUP.md)'
+            : 'Die Spielerprofile konnten nicht geladen werden. Besteht eine Verbindung?';
         loaded = true;
         cb();
       },
-      (err) => console.error('Profil-Abo fehlgeschlagen:', err),
     );
   },
 

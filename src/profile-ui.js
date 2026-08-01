@@ -7,8 +7,17 @@ import { esc } from './html.js';
 
 /** Kantenlänge, auf die hochgeladene Fotos verkleinert werden. */
 const PHOTO_SIZE = 256;
-/** Obergrenze für das fertige Bild — Firestore erlaubt 1 MiB pro Dokument. */
-const MAX_PHOTO_CHARS = 200 * 1024;
+// Obergrenze für das fertige Bild. Firestore erlaubt 1 MiB pro Dokument, aber
+// der engere Deckel gilt der Render-Last: das Bild steckt in jeder Profil-Liste
+// und in jedem Vorschlag der Suchliste. 256px/q0.8 liegt real bei 10–20 KB.
+const MAX_PHOTO_CHARS = 60 * 1024;
+
+/**
+ * Ist das eine eingebettete Bild-Data-URL? Base64 enthält keine Zeichen, die in
+ * einem Attribut ausbrechen könnten — die Prüfung ersetzt deshalb das Escapen
+ * (ein voller Regex-Scan über 20 KB pro Avatar und Render).
+ */
+const isEmbeddedImage = (url) => typeof url === 'string' && /^data:image\/[a-z+]+;base64,[A-Za-z0-9+/=]*$/.test(url);
 
 /**
  * Avatar eines Profils als HTML-Schnipsel.
@@ -19,9 +28,12 @@ export function avatarHtml(profile, size = 28) {
   const box = (inner) =>
     `<span class="avatar" style="width:${size}px;height:${size}px">${inner}</span>`;
   if (!profile) return box('<span class="avatar-empty">?</span>');
-  if (profile.avatar?.type === 'photo') {
+  // Nur eingebettete Bilder zulassen: die Collection ist offen beschreibbar,
+  // eine fremde http-URL im src wäre ein Aufruf an einen fremden Host bei jedem
+  // Betrachter (und bräche die Offline-Zusage der PWA).
+  if (profile.avatar?.type === 'photo' && isEmbeddedImage(profile.avatar.dataUrl)) {
     return box(
-      `<img class="avatar-img" src="${esc(profile.avatar.dataUrl)}" alt="" width="${size}" height="${size}"/>`,
+      `<img class="avatar-img" src="${profile.avatar.dataUrl}" alt="" width="${size}" height="${size}"/>`,
     );
   }
   return box(identiconSvg(profile.avatar?.seed || profile.id, size));
@@ -29,9 +41,7 @@ export function avatarHtml(profile, size = 28) {
 
 /** Avatar + Name nebeneinander (Listen, Zeilen in der Eingabe). */
 export function avatarNameHtml(profile, name, size = 24) {
-  return `<span class="avatar-name">${avatarHtml(profile, size)}<span>${esc(
-    name ?? profile?.name ?? '',
-  )}</span></span>`;
+  return `<span class="avatar-name">${avatarHtml(profile, size)}<span>${esc(name)}</span></span>`;
 }
 
 /**
@@ -100,17 +110,19 @@ async function loadImage(file) {
  * @param {number|string} state.key eindeutiger Bezeichner der Zeile (data-i)
  * @param {object|null} state.profile aktuell gewähltes Profil
  * @param {string} state.query aktuelle Sucheingabe
- * @param {boolean} state.open ist die Vorschlagsliste offen?
  * @param {object[]} state.matches Vorschläge (bereits gefiltert & sortiert)
+ * @param {boolean} state.nameTaken trägt die Eingabe schon ein anderes Profil?
  * @param {string} [state.placeholder]
  */
 export function pickerHtml(state) {
-  const { key, profile, query, open, placeholder = 'Spieler suchen …' } = state;
+  const { key, profile, query, placeholder = 'Spieler suchen …' } = state;
+  // Die Vorschlagsliste startet immer leer und wird erst beim Öffnen gefüllt
+  // (openPicker) — sonst müsste jeder Render alle Avatare aller Profile bauen.
   return `
-    <div class="picker ${open ? 'open' : ''}" data-picker="${esc(key)}">
+    <div class="picker">
       <div class="picker-field">
         ${avatarHtml(profile, 28)}
-        <input data-pquery="${esc(key)}" value="${esc(profile && !open ? profile.name : query)}"
+        <input data-pquery="${esc(key)}" value="${esc(profile ? profile.name : query)}"
           placeholder="${esc(placeholder)}" autocomplete="off" autocapitalize="words"
           spellcheck="false" enterkeyhint="done" />
         ${
@@ -121,9 +133,7 @@ export function pickerHtml(state) {
             : ''
         }
       </div>
-      <div class="picker-list" data-picker-list="${esc(key)}">${
-        open ? pickerOptionsHtml(state) : ''
-      }</div>
+      <div class="picker-list" data-picker-list></div>
     </div>`;
 }
 
@@ -131,7 +141,7 @@ export function pickerHtml(state) {
  * Nur die Vorschlagsliste — beim Tippen wird ausschließlich dieser Teil neu
  * gesetzt, damit das Eingabefeld den Fokus (und die Cursorposition) behält.
  */
-export function pickerOptionsHtml({ key, query, matches }) {
+export function pickerOptionsHtml({ key, query, matches, nameTaken }) {
   const name = (query || '').trim();
   const options = matches
     .map(
@@ -142,11 +152,14 @@ export function pickerOptionsHtml({ key, query, matches }) {
     )
     .join('');
 
-  const create = name
-    ? `<button class="picker-option picker-create" data-action="create-profile" data-i="${esc(
-        key,
-      )}">➕ <span>„${esc(name)}" als neues Profil anlegen</span></button>`
-    : '';
+  // Nicht anbieten, wenn der Name schon vergeben ist — der Klick endete sonst
+  // garantiert in „gibt es schon".
+  const create =
+    name && !nameTaken
+      ? `<button class="picker-option picker-create" data-action="create-profile" data-i="${esc(
+          key,
+        )}">➕ <span>„${esc(name)}" als neues Profil anlegen</span></button>`
+      : '';
 
   if (!options && !create) {
     return '<p class="picker-empty">Noch keine Profile — tippe einen Namen, um eins anzulegen.</p>';

@@ -7,6 +7,10 @@
 
 import { identiconKey, randomSeed } from './identicon.js';
 
+// Einmal erzeugen: localeCompare baut sonst bei jedem Vergleich einen neuen
+// Collator, und sortiert wird pro Sitzplatz und Tastendruck.
+const collator = new Intl.Collator('de');
+
 function uid() {
   return Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
 }
@@ -17,6 +21,10 @@ function uid() {
  */
 export function normalizeName(name) {
   return String(name)
+    // NFC zuerst: macOS/iOS liefern Umlaute oft als "u" + kombinierendes
+    // Trema, das sonst weder von toLowerCase noch von der Umlautregel erwischt
+    // wird — zwei optisch gleiche Namen gälten dann nicht als Dublette.
+    .normalize('NFC')
     .toLowerCase()
     .replace(/ä/g, 'ae')
     .replace(/ö/g, 'oe')
@@ -77,7 +85,7 @@ export function isNameTaken(profiles, name, exceptId = null) {
  */
 export function matchProfiles(profiles, query, { excludeIds = [] } = {}) {
   const skip = new Set(excludeIds);
-  const byName = (a, b) => a.name.localeCompare(b.name, 'de');
+  const byName = (a, b) => collator.compare(a.name, b.name);
   const pool = profiles.filter((p) => !skip.has(p.id));
   const q = normalizeName(query || '');
   if (!q) return pool.sort(byName);
@@ -130,14 +138,13 @@ export function remapGameProfile(game, fromId, toId, toName) {
  * Namen im Spiel an die Profile angleichen — das Profil ist die einzige Wahrheit,
  * auch rückwirkend in längst gespielten Runden.
  * @param {object} game mutiert
- * @param {Map<string, object>|Record<string, object>} byProfileId
+ * @param {Map<string, object>} byProfileId
  * @returns {boolean} true, wenn etwas geändert wurde
  */
 export function applyProfileNames(game, byProfileId) {
-  const lookup = byProfileId instanceof Map ? byProfileId : new Map(Object.entries(byProfileId));
   let changed = false;
   for (const p of game.players) {
-    const profile = p.profileId ? lookup.get(p.profileId) : null;
+    const profile = p.profileId ? byProfileId.get(p.profileId) : null;
     if (!profile || profile.name === p.name) continue;
     p.name = profile.name;
     changed = true;
@@ -163,7 +170,7 @@ export function unassignedPlayers(games) {
     }
   }
   return [...groups.values()].sort(
-    (a, b) => b.count - a.count || a.name.localeCompare(b.name, 'de'),
+    (a, b) => b.count - a.count || collator.compare(a.name, b.name),
   );
 }
 
@@ -178,4 +185,48 @@ export function assignProfile(game, playerId, profile) {
   p.profileId = profile.id;
   p.name = profile.name;
   return true;
+}
+
+/**
+ * Zuordnung einer ganzen Namensgruppe planen und ausführen — alles oder nichts.
+ *
+ * Dieselbe Person darf nicht auf zwei Sitzplätzen desselben Spiels landen: die
+ * beiden hätten eigene Ansagen und Stiche, ließen sich also nicht zu einer
+ * Person verrechnen. Genau das verbietet `findMergeConflicts` beim
+ * Zusammenführen — beim Zuordnen gilt es genauso.
+ *
+ * @param {object[]} games alle Spiele; bei konfliktfreiem Plan werden die
+ *   betroffenen mutiert (wie `assignProfile`)
+ * @param {string} groupName Anzeigename der Gruppe aus `unassignedPlayers`
+ * @param {{id: string, name: string}} profile Zielprofil
+ * @returns {{ touched: object[], conflicts: object[] }} bei Konflikten ist
+ *   `touched` leer und nichts wurde verändert
+ */
+export function planNameAssignment(games, groupName, profile) {
+  const key = normalizeName(groupName);
+  const group = unassignedPlayers(games).find((g) => normalizeName(g.name) === key);
+  if (!group) return { touched: [], conflicts: [] };
+
+  const byId = new Map(games.map((g) => [g.id, g]));
+  const conflicts = [];
+  const claimed = new Map(); // gameId -> Sitzplatz, der das Profil bekommen soll
+
+  for (const entry of group.entries) {
+    const game = byId.get(entry.gameId);
+    if (!game) continue;
+    const alreadySeated = game.players.some((p) => p.profileId === profile.id);
+    if (alreadySeated || claimed.has(game.id)) {
+      if (!conflicts.includes(game)) conflicts.push(game);
+      continue;
+    }
+    claimed.set(game.id, entry.playerId);
+  }
+  if (conflicts.length) return { touched: [], conflicts };
+
+  const touched = [];
+  for (const [gameId, playerId] of claimed) {
+    const game = byId.get(gameId);
+    if (assignProfile(game, playerId, profile)) touched.push(game);
+  }
+  return { touched, conflicts };
 }

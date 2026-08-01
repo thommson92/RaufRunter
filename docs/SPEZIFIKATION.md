@@ -183,6 +183,18 @@ werden alle betroffenen Spiel-Dokumente einmal umgeschrieben (Write-Through stat
 zur Render-Zeit) — dadurch bleibt der komplette Render- und Engine-Pfad unverändert, und
 alte Runden zeigen rückwirkend den aktuellen Namen.
 
+**Eine Person nie zweimal am selben Tisch.** Zwei Sitzplätze desselben Spiels dürfen nicht
+auf dasselbe Profil zeigen: sie haben eigene Ansagen und Stiche und ließen sich nicht zu
+einer Person verrechnen. Sowohl das Zusammenführen (`findMergeConflicts`) als auch das
+Zuordnen alter Runden (`planNameAssignment`) verweigern solche Fälle — Letzteres nach dem
+Alles-oder-nichts-Prinzip, damit kein halb zugeordneter Zustand entsteht.
+
+**Schreiben aus der Verwaltung setzt frisch geladene Spiele voraus.** `fb.saveGames`
+überschreibt ganze Dokumente; mit einem beim Öffnen der Verwaltung eingefrorenen Stand
+gingen zwischenzeitlich auf anderen Geräten eingetragene Runden verloren. Zusammenführen
+und Zuordnen laden deshalb unmittelbar vor dem Schreiben neu und brechen ab, wenn das
+nicht gelingt.
+
 ### Dateien
 ```
 index.html               App-Shell

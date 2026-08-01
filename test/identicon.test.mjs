@@ -8,6 +8,17 @@ import {
   IDENTICON_COLORS,
 } from '../src/identicon.js';
 
+// avatar.key wird im Profil-Dokument GESPEICHERT und später gegen frisch
+// berechnete Keys geprüft (rollUniqueIdenticon). Ändert sich der Algorithmus,
+// passen gespeicherte und berechnete Keys nicht mehr zusammen: die
+// Eindeutigkeitsgarantie wäre wirkungslos und alle Bestandsprofile bekämen ein
+// neues Bild. Diese festen Werte schlagen genau dann fehl.
+test('Identicon-Keys sind über Versionen hinweg stabil (Golden Values)', () => {
+  assert.equal(identiconKey('tommi'), 'hjp-1');
+  assert.equal(identiconKey('schuulsen'), 'o25-3');
+  assert.equal(identiconKey('abc'), 'nc4-5');
+});
+
 test('gleicher Seed liefert immer dasselbe Muster', () => {
   assert.deepEqual(identiconPattern('abc'), identiconPattern('abc'));
   assert.equal(identiconKey('abc'), identiconKey('abc'));
@@ -57,9 +68,11 @@ test('SVG enthält Größe und genau eine Musterfarbe', () => {
 });
 
 test('Musterraum ist groß genug für viele Profile', () => {
+  // Feste Seeds statt Zufall: der Test soll bei einer Regression fehlschlagen,
+  // nicht gelegentlich von selbst.
   const keys = new Set();
   const total = 5000;
-  for (let i = 0; i < total; i++) keys.add(identiconKey(randomSeed()));
+  for (let i = 0; i < total; i++) keys.add(identiconKey('seed-' + i));
   // Sanity-Check gegen einen degenerierten Hash. Ein paar Kollisionen sind bei
   // 5000 Ziehungen statistisch normal (Geburtstagsparadoxon, Musterraum ~2·10⁵);
   // die echte Eindeutigkeitsgarantie liefert rollUniqueIdenticon().
@@ -69,4 +82,24 @@ test('Musterraum ist groß genug für viele Profile', () => {
 test('randomSeed liefert unterschiedliche Werte', () => {
   const seeds = new Set(Array.from({ length: 100 }, randomSeed));
   assert.ok(seeds.size > 95);
+});
+
+test('Zahl und Zeichenkette als Seed sind gleichwertig', () => {
+  assert.equal(identiconKey(123), identiconKey('123'));
+});
+
+test('Standardgröße ist 48px', () => {
+  assert.match(identiconSvg('groesse'), /width="48" height="48"/);
+});
+
+test('Die Dichte-Schleife greift wirklich', () => {
+  // Ohne Verwerfen käme im Schnitt jedes ~20. Muster außerhalb der Grenzen.
+  // Läuft die Schleife nie, sieht der Grenzwert-Test oben identisch aus.
+  const dichten = new Set();
+  for (let i = 0; i < 500; i++) {
+    const { cells } = identiconPattern('dichte-' + i);
+    dichten.add(cells.reduce((n, on, idx) => (on ? n + (idx % 3 === 2 ? 1 : 2) : n), 0));
+  }
+  assert.ok(dichten.size > 5, 'Muster variieren in der Dichte');
+  assert.ok(Math.min(...dichten) >= 7 && Math.max(...dichten) <= 18);
 });

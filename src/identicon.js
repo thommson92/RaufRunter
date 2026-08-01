@@ -24,6 +24,11 @@ const HALF = 3; // Spalten 0..2 werden gewürfelt, 3 & 4 spiegeln 1 & 0
 const MIN_FILLED = 7;
 const MAX_FILLED = 18;
 
+// Dieselben Avatare werden pro Ansicht dutzendfach gezeichnet — in der
+// Suchliste bei jedem Tastendruck erneut. Die Zahl der Seeds ist durch die
+// Profile begrenzt, der Cache wächst also nicht unbegrenzt.
+const patternCache = new Map();
+
 function fnv1a(str) {
   let h = 0x811c9dc5;
   for (let i = 0; i < str.length; i++) {
@@ -50,6 +55,9 @@ function mulberry32(a) {
  *   Einträge (zeilenweise, nur die linke Hälfte inkl. Mittelspalte).
  */
 export function identiconPattern(seed) {
+  const cached = patternCache.get(seed);
+  if (cached) return cached;
+
   const next = mulberry32(fnv1a(String(seed)));
   let cells;
   let filled;
@@ -63,7 +71,10 @@ export function identiconPattern(seed) {
       if (on) filled += i % HALF === HALF - 1 ? 1 : 2;
     }
   } while (filled < MIN_FILLED || filled > MAX_FILLED);
-  return { cells, colorIndex: Math.floor(next() * IDENTICON_COLORS.length) };
+
+  const pattern = { cells, colorIndex: Math.floor(next() * IDENTICON_COLORS.length) };
+  patternCache.set(seed, pattern);
+  return pattern;
 }
 
 /**
