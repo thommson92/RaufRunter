@@ -1,14 +1,12 @@
-// store-firebase.js — Firestore-Adapter (M3).
+// store-firebase.js — Firestore-Adapter für Spiele (M3).
 // Implementiert dieselbe fachliche Schnittstelle wie store.js, aber
 // geräteübergreifend & live. Firestore-eigener IndexedDB-Cache übernimmt
 // die "local-first"-Rolle: Daten überleben Browser-Schließen und kurze
 // Offline-Phasen (Schreibvorgänge werden gepuffert und nachsynchronisiert).
+// Die Firestore-Instanz selbst kommt aus firebase-db.js (auch von den
+// Spielerprofilen genutzt).
 
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
 import {
-  initializeFirestore,
-  persistentLocalCache,
-  persistentMultipleTabManager,
   collection,
   doc,
   getDoc,
@@ -16,22 +14,9 @@ import {
   setDoc,
   deleteDoc,
   onSnapshot,
+  writeBatch,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
-import { firebaseConfig } from './firebase-config.js';
-
-const app = initializeApp(firebaseConfig);
-
-// Persistenter lokaler Cache (IndexedDB) + Mehr-Tab-Sync.
-// Fällt automatisch auf Memory-Cache zurück, falls IndexedDB nicht verfügbar.
-let db;
-try {
-  db = initializeFirestore(app, {
-    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
-  });
-} catch (e) {
-  console.warn('Firestore-Persistenz nicht verfügbar, nutze Standard-Cache.', e);
-  db = initializeFirestore(app, {});
-}
+import { db } from './firebase-db.js';
 
 const GAMES = 'games';
 const gameRef = (id) => doc(db, GAMES, id);
@@ -55,6 +40,27 @@ export const fb = {
     game.updatedAt = Date.now();
     await setDoc(gameRef(game.id), game);
     return game;
+  },
+
+  /**
+   * Mehrere Spiele in einem Rutsch schreiben (Zusammenführen/Zuordnen von
+   * Profilen). Als Batch, damit nicht die Hälfte der Spiele umgeschrieben
+   * zurückbleibt, wenn unterwegs die Verbindung abreißt.
+   *
+   * Achtung: `saveGames` überschreibt ganze Dokumente. Die übergebenen Spiele
+   * müssen deshalb frisch geladen sein, sonst gehen zwischenzeitlich
+   * eingetragene Runden verloren.
+   */
+  async saveGames(games) {
+    // Ein Firestore-Batch fasst höchstens 500 Operationen.
+    for (let i = 0; i < games.length; i += 500) {
+      const batch = writeBatch(db);
+      for (const game of games.slice(i, i + 500)) {
+        game.updatedAt = Date.now();
+        batch.set(gameRef(game.id), game);
+      }
+      await batch.commit();
+    }
   },
 
   async deleteGame(id) {

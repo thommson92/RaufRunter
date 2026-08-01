@@ -90,9 +90,11 @@ Smartphone nutzen. → **Mobile-first.**
 - Spiele **löschbar**.
 - Sprache: **Deutsch**.
 - PWA („Zum Startbildschirm"), lokale Eingabe kurz offline möglich.
-- **Lustige Namensvorschläge** beim Anlegen: alliterierende Namen (Vor-/Nachname
-  gleicher Anfangsbuchstabe, z. B. „Daniel Düsentrieb") als Platzhalter, plus 🎲 pro
-  Zeile und „Alle würfeln". Quelle: `src/names.js`. Reine UI-Hilfe, kein DB-Einfluss.
+- **Lustige Namensvorschläge**: alliterierende Namen (Vor-/Nachname gleicher
+  Anfangsbuchstabe, z. B. „Daniel Düsentrieb") als Platzhalter beim Anlegen eines
+  Profils. Quelle: `src/names.js`. Reine UI-Hilfe, kein DB-Einfluss.
+- **Spielerprofile** (M11): Namen einmal anlegen und in jeder Runde wiederverwenden,
+  mit eindeutigem Profilbild. Grundlage für spielübergreifende Langzeit-Statistiken.
 
 ---
 
@@ -111,6 +113,11 @@ Smartphone nutzen. → **Mobile-first.**
 | 9 | Spiele löschbar? | **Ja.** |
 | 10 | Sprache? | **Nur Deutsch.** |
 | 11 | Schreibschutz nötig? | **Nein**, solange Zuschauer-Link read-only ist. |
+| 12 | Spielernamen wiederverwendbar? | **Ja, als Profile** (`players`-Collection) — Vorstufe für spielübergreifende Statistiken. |
+| 13 | Gäste ohne Profil erlaubt? | **Nein.** Jeder Mitspieler braucht ein Profil; Anlegen geht im gleichen Zug beim Anlegen der Runde. |
+| 14 | Alter Name nach Umbenennen/Merge? | **Profilname gewinnt**, auch rückwirkend in alten Runden. |
+| 15 | Profilbilder? | **Selbst generiertes Identicon oder eigenes Foto** — keine externe API, damit die PWA offline funktioniert. Jedes Bild ist eindeutig. |
+| 16 | Wer darf Profile anlegen/löschen? | Anlegen: **jeder**. Löschen & Zusammenführen: **Passwort** (dasselbe wie beim Spiel-Löschen). |
 
 ---
 
@@ -130,11 +137,14 @@ Smartphone nutzen. → **Mobile-first.**
 - **Tests:** Node-eigener Test-Runner (`node --test`) für die reine Engine — kein npm-Dep.
 
 ### Routen (Hash)
-- `#/` — Startseite: Liste der Spiele + „Neues Spiel".
-- `#/new` — Spiel anlegen (Name, max Karten, Spieler).
+- `#/` — Startseite: Liste der Spiele + „Neues Spiel" + 👥 zu den Profilen.
+- `#/new` — Spiel anlegen (Name, max Karten, Spieler aus Profilen wählen).
 - `#/game/<id>` — **Schreiber-Ansicht** (Eingabe + Tabelle).
-- `#/players/<id>` — Spieler umbenennen & Sitzreihenfolge ändern.
+- `#/players/<id>` — Sitzreihenfolge im Spiel ändern (Namen kommen aus dem Profil).
 - `#/view/<id>` — **Zuschauer-Ansicht** (read-only, live).
+- `#/profiles` — **Spielerprofile**: Übersicht & Anlegen (ohne Passwort).
+- `#/profiles/<id>` — Profil bearbeiten: Name, Profilbild, Löschen (Passwort).
+- `#/admin` — **Verwaltung** (Passwort): Profile zusammenführen, alte Runden zuordnen.
 
 ### Datenmodell
 ```jsonc
@@ -143,7 +153,7 @@ games/<gameId> = {
   upOnly,                             // bool, default false (nur 1→max statt 1→max→1?)
   restrictLastBid,                    // bool, default true (verbotene Ansage aktiv?)
   createdAt, updatedAt,
-  players: [ { id, name, seatOrder } ],
+  players: [ { id, profileId, name, seatOrder } ],
   rounds:  [ {
     index, cardCount,
     bids:   { [playerId]: number },   // Ansagen
@@ -152,19 +162,55 @@ games/<gameId> = {
     done:   boolean
   } ]
 }
+
+players/<profileId> = {
+  id, name,                           // Name eindeutig (case-/umlaut-unabhängig)
+  avatar: { type: "identicon", seed, key }   // generiertes Muster
+        | { type: "photo", dataUrl },        // eigenes Foto, 256px JPEG
+  createdAt, updatedAt
+}
 ```
 **Wichtig:** Punkte werden **abgeleitet** berechnet (`engine.standings`), **nicht**
 gespeichert → Korrekturen bleiben immer konsistent.
 
+**Spielinterne ID vs. Profil-ID:** `players[].id` bleibt die spielinterne ID und ist
+Schlüssel in `rounds[].bids`/`tricks`; `profileId` verweist zusätzlich auf das dauerhafte
+Profil. Die beiden bewusst **nicht** zu verschmelzen macht Umbenennen und Zusammenführen
+risikolos — dabei werden nie Punktedaten angefasst.
+
+**Das Profil ist die einzige Wahrheit für Namen.** Beim Umbenennen oder Zusammenführen
+werden alle betroffenen Spiel-Dokumente einmal umgeschrieben (Write-Through statt Auflösen
+zur Render-Zeit) — dadurch bleibt der komplette Render- und Engine-Pfad unverändert, und
+alte Runden zeigen rückwirkend den aktuellen Namen.
+
+**Eine Person nie zweimal am selben Tisch.** Zwei Sitzplätze desselben Spiels dürfen nicht
+auf dasselbe Profil zeigen: sie haben eigene Ansagen und Stiche und ließen sich nicht zu
+einer Person verrechnen. Sowohl das Zusammenführen (`findMergeConflicts`) als auch das
+Zuordnen alter Runden (`planNameAssignment`) verweigern solche Fälle — Letzteres nach dem
+Alles-oder-nichts-Prinzip, damit kein halb zugeordneter Zustand entsteht.
+
+**Schreiben aus der Verwaltung setzt frisch geladene Spiele voraus.** `fb.saveGames`
+überschreibt ganze Dokumente; mit einem beim Öffnen der Verwaltung eingefrorenen Stand
+gingen zwischenzeitlich auf anderen Geräten eingetragene Runden verloren. Zusammenführen
+und Zuordnen laden deshalb unmittelbar vor dem Schreiben neu und brechen ab, wenn das
+nicht gelingt.
+
 ### Dateien
 ```
-index.html              App-Shell
-styles.css              Mobile-first Styling (dark)
-src/engine.js           Reine Spiellogik (keine DOM-Abhängigkeit) — testbar
-src/store.js            Zustand + Persistenz (localStorage; Firebase-Adapter folgt in M3)
-src/app.js              UI, Hash-Router, Event-Handling
-test/engine.test.mjs    Unit-Tests der Rechenregeln (node --test)
-docs/SPEZIFIKATION.md   dieses Dokument
+index.html               App-Shell
+styles.css               Mobile-first Styling (dark)
+src/engine.js            Reine Spiellogik (keine DOM-Abhängigkeit) — testbar
+src/store.js             createGame-Factory (localStorage-Store nur noch als Referenz)
+src/firebase-db.js       Firestore-Instanz (von beiden Adaptern genutzt)
+src/store-firebase.js    Firestore-Adapter für Spiele
+src/store-profiles.js    Firestore-Adapter für Spielerprofile + Modul-Cache
+src/identicon.js         Generierte Profilbilder (rein, testbar)
+src/profile-model.js     Profil-Fachlogik: Suche, Dubletten, Merge (rein, testbar)
+src/profile-ui.js        Avatare, Foto-Aufbereitung, Combobox-Markup
+src/html.js              esc() für die Template-Strings
+src/app.js               UI, Hash-Router, Event-Handling
+test/*.test.mjs          Unit-Tests (node --test)
+docs/SPEZIFIKATION.md    dieses Dokument
 ```
 
 ### Engine-API (`src/engine.js`)
@@ -246,6 +292,7 @@ Ansicht"-Button mehr, das leistet ihr Zurück-Pfeil bereits).
 | **M8** | Zuschaueransicht: „Spielleiter-Ansicht"-Button (analog zum „Zuschauer-Ansicht"-Button auf der anderen Seite); Punktestand-Sortierung & Zeilen/Spalten-Achse als klar beschriftete Segmented Controls statt zweideutiger Toggle-Buttons; Fakten-Kacheln nennen bei Gleichstand alle betroffenen Namen (`extremeGroup`/`extremeRounds` als Arrays); neue „Malus-Bilanz"-Karte (`malusStats`); regelbasierter Rundenkommentar (`src/commentary.js` + `engine.roundEvents`). | ✅ fertig |
 | **M9** | Konsistente Navigation: Zurück-Pfeil führt jetzt immer eine Ebene nach oben (Zuschauer- → Spielleiter-Ansicht statt direkt Startseite), der dadurch redundante „Spielleiter-Ansicht"-Button in der Zuschaueransicht entfällt. Rundenkommentar knapper: Eröffnung + max. 2 Highlights statt aller Ereignisse, mehrere Nullansagen in einem Satz statt pro Spieler. Kartenreihenfolge Zuschaueransicht neu sortiert: Rundenkommentar, Punktestand, Punkteverlauf, Platzierungsverlauf, Statistiken, Malus-Bilanz, Angesagt vs. gemacht. | ✅ fertig |
 | **M10** | Malus-Bilanz überarbeitet: unterscheidet jetzt Geber-Runden ohne echten Einfluss (neutral) von Malus+richtig/Malus+falsch (`dealerMalusStats` statt `malusStats`) und ist **immer sichtbar** (vorher versteckt, wenn noch kein bindender Malus aufgetreten war — schwer von einem Bug zu unterscheiden). Darstellung als Kreisdiagramm je Spieler (CSS `conic-gradient`, grau/grün/rot, gemeinsame Legende). | ✅ fertig |
+| **M11** | **Spielerprofile** (`players`-Collection): Namen werden nicht mehr getippt, sondern aus wiederverwendbaren Profilen gewählt — Combobox mit Vorschlägen ab dem ersten Buchstaben, unbekannte Namen direkt im Formular anlegbar. Profilbilder: generiertes Identicon (`src/identicon.js`, GitHub-Stil, garantiert eindeutig) oder eigenes Foto (Canvas-Resize auf 256 px, als Data-URL im Profil-Dokument). Neue Ansichten `#/profiles`, `#/profiles/<id>` und passwortgeschützte `#/admin` (Profile zusammenführen, Spieler aus Bestandsrunden zuordnen). Grundlage für spielübergreifende Statistiken. | ✅ fertig |
 
 ### Status-Notiz (M3/M4 verifiziert)
 - Smoke-Test via Chrome-headless + DevTools-Protokoll: Startseite/`listGames` lädt,
