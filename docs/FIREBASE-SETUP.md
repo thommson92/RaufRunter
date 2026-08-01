@@ -29,12 +29,32 @@ Spiele auf anderen Smartphones in Echtzeit mitgelesen werden können.
        match /games/{gameId} {
          allow read, write: if true;
        }
+       match /players/{playerId} {
+         allow read, write: if true;
+       }
      }
    }
    ```
 
-   > Bewusst offen, da kein Schutz gefordert ist und nur die `games`-Sammlung betroffen
-   > ist. Wer Schreibzugriff einschränken will, müsste später Firebase Auth ergänzen.
+   > Bewusst offen, da kein Schutz gefordert ist und nur diese beiden Sammlungen
+   > betroffen sind. Wer Schreibzugriff einschränken will, müsste später Firebase Auth
+   > ergänzen. Die Passwortabfragen in der App (Spiel/Profil löschen, Profile
+   > zusammenführen) sind bewusst nur eine Hürde gegen Versehen, kein Schutz.
+   >
+   > ⚠️ **Ohne die `players`-Regel scheitert jeder Profil-Zugriff mit
+   > `PERMISSION_DENIED`** — die App zeigt dann dauerhaft „Lade Spielerprofile …"
+   > und es lassen sich keine neuen Runden anlegen.
+
+## Sammlungen
+
+| Sammlung | Inhalt |
+|---|---|
+| `games/<gameId>` | ein Dokument je Spiel (Spieler, Runden, Ansagen/Stiche) |
+| `players/<profileId>` | Spielerprofil: Name + Profilbild (Identicon-Seed oder Foto als Data-URL) |
+
+Profilfotos liegen als verkleinertes JPEG (256 px, ≈ 10–20 KB) direkt im Profil-Dokument —
+kein Cloud-Storage nötig, damit auch keine zusätzlichen Regeln oder Kosten. Firestore
+erlaubt 1 MiB pro Dokument, die App deckelt bei 200 KB.
 
 ---
 
