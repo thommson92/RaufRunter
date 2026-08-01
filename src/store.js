@@ -25,6 +25,9 @@ function uid() {
 
 /**
  * Neues Spiel-Objekt erzeugen (noch nicht gespeichert).
+ * @param {{id: string, name: string}[]} profiles Mitspieler-Profile in
+ *   Sitzreihenfolge. `players[].id` bleibt spielintern (Schlüssel in
+ *   rounds[].bids/tricks), `profileId` verweist auf das dauerhafte Profil.
  * @param {boolean} [restrictLastBid=true] Wenn true gilt die Standardregel:
  *   die Summe aller Ansagen darf nicht der Kartenzahl entsprechen (letzter
  *   Spieler eingeschränkt). Wenn false darf die Ansage-Summe aufgehen.
@@ -34,13 +37,14 @@ function uid() {
 export function createGame({
   name,
   maxCards,
-  playerNames,
+  profiles,
   restrictLastBid = true,
   upOnly = false,
 }) {
-  const players = playerNames.map((n, i) => ({
+  const players = profiles.map((profile, i) => ({
     id: uid(),
-    name: n.trim(),
+    profileId: profile.id,
+    name: profile.name,
     seatOrder: i,
   }));
   const counts = roundCardCounts(maxCards, upOnly);

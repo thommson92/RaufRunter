@@ -128,6 +128,119 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 12px 0 
 .player-row:last-child { border-bottom: none; }
 .player-row .seat { width: 26px; color: var(--muted); text-align: center; }
 .player-row input { flex: 1; }
+.player-row .picker { flex: 1; min-width: 0; }
+.player-profile-link { flex: 1; min-width: 0; text-align: left; justify-content: flex-start; }
+
+/* ---- Profilbilder ---- */
+.avatar {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  vertical-align: middle;
+}
+.avatar-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.avatar-empty { color: var(--muted); font-size: 0.8rem; }
+.avatar-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.avatar-name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- Profil-Übersicht & -Editor ---- */
+.profile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 10px;
+}
+.profile-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 6px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  text-align: center;
+  min-height: 0;
+}
+.profile-tile strong { font-size: 0.9rem; overflow-wrap: anywhere; }
+.profile-tile small { font-size: 0.72rem; }
+.profile-hero .avatar { border-width: 2px; }
+
+/* ---- Verwaltung: alte Runden zuordnen ---- */
+.assign-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.assign-row:last-child { border-bottom: none; }
+.assign-name { flex: 1 1 140px; min-width: 0; }
+.assign-name small { display: block; font-size: 0.75rem; overflow-wrap: anywhere; }
+.assign-row .picker { flex: 1 1 200px; min-width: 0; }
+
+/* ---- Combobox: Spieler suchen & auswählen ---- */
+.picker { position: relative; }
+.picker-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+}
+.picker.open .picker-field { border-color: var(--primary); }
+.picker-field input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  padding-left: 0;
+  padding-right: 0;
+}
+.picker-field input:focus { outline: none; }
+.picker-field .icon-btn { min-width: 36px; padding: 6px; }
+
+.picker-list { display: none; }
+.picker.open .picker-list {
+  display: block;
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  box-shadow: 0 10px 24px rgb(0 0 0 / 45%);
+}
+.picker-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border-radius: 8px;
+  text-align: left;
+}
+.picker-option > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-option:hover, .picker-option:focus-visible { background: var(--surface); }
+.picker-create { color: var(--primary); font-weight: 600; }
+.picker-empty { margin: 0; padding: 10px; font-size: 0.85rem; }
 
 /* ---- Geber-Auslosung ("Glücksrad" beim Anlegen) ---- */
 .lottery-result { text-align: center; font-weight: 700; margin: 10px 0 0; color: var(--good); }
