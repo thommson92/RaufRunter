@@ -59,7 +59,12 @@ p { color: var(--muted); }
   gap: 10px;
   padding: 14px 0;
   position: sticky;
-  top: 0;
+  /* Nicht 0, sonst rutscht die Leiste im installierten iOS-PWA-Modus
+     (viewport-fit=cover + black-translucent Statusleiste) beim Scrollen unter
+     Uhrzeit/Akku, weil "sticky" sich sonst am physischen Viewport-Rand
+     verhakt statt am unteren Rand der Statusleiste. In Safari selbst (eigene
+     Browser-Chrome über der Seite) ist safe-area-inset-top ohnehin 0. */
+  top: env(safe-area-inset-top);
   background: var(--bg);
   z-index: 5;
 }
@@ -117,6 +122,23 @@ input, select {
   min-height: 44px;
 }
 label { display: block; font-size: 0.85rem; color: var(--muted); margin: 12px 0 6px; }
+
+/* Zahl-Eingabe mit +/- Tasten (z.B. Kartenzahl) — auf dem Smartphone lässt
+   sich das native Spinner-Feld schlecht treffen, die Ziffer ist dort kaum
+   antippbar; +/- Tasten sind ein deutlich größeres, verlässlicheres Ziel. */
+.stepper { display: flex; align-items: stretch; gap: 8px; }
+.stepper-btn {
+  flex: 0 0 auto; width: 44px; min-height: 44px; padding: 0;
+  display: grid; place-items: center; font-size: 1.3rem; line-height: 1;
+}
+.stepper-value {
+  flex: 1; min-width: 0; text-align: center;
+  -moz-appearance: textfield;
+}
+.stepper-value::-webkit-inner-spin-button,
+.stepper-value::-webkit-outer-spin-button {
+  -webkit-appearance: none; margin: 0;
+}
 .check-row { display: flex; align-items: center; gap: 10px; margin: 16px 0 4px; cursor: pointer; }
 .check-row input[type="checkbox"] {
   width: 22px; height: 22px; min-height: 0; flex: 0 0 auto; accent-color: var(--primary);
@@ -287,6 +309,20 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 12px 0 
 
 .entry-player { font-weight: 600; margin: 14px 0 2px; }
 .entry-sub { font-size: 0.8rem; color: var(--muted); }
+
+/* ---- Zuschauer: Spielerleiste (Avatare, Platzierung, Punktestand) ---- */
+.player-strip { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px 12px; }
+.player-strip-item {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; width: 76px;
+}
+.player-strip-name {
+  font-size: 0.8rem; font-weight: 600; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.player-strip-score { font-size: 0.85rem; font-weight: 700; }
+
+/* ---- Zuschauer: Geber-Zeile in „Aktuelle Runde" ---- */
+.dealer-line { margin: 8px 0 0; }
 
 /* ---- Zuschauer: Live-Status der aktuellen Runde ---- */
 .live-row {

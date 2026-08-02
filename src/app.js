@@ -52,6 +52,11 @@ const appEl = document.getElementById('app');
 // E-Mail-Adresse, damit die Adresse nicht im öffentlichen HTML crawlbar ist.
 const PAYPAL_URL = 'https://paypal.me/Thommyguun';
 
+// Feedback-Link auf der Startseite — bewusst als mailto:, damit Rückmeldungen
+// direkt beim Entwickler landen statt über ein eigenes Formular/Backend.
+// Die Adresse steht dadurch (anders als beim Spendenlink oben) im HTML.
+const FEEDBACK_MAILTO = `mailto:thomas-kellner@web.de?subject=${encodeURIComponent('Rauf Runter – Feedback')}`;
+
 // Flüchtiger UI-Zustand (nicht persistiert).
 const ui = {
   draft: null,        // Entwurf im "Neues Spiel"-Formular
@@ -255,7 +260,10 @@ async function renderHome() {
     <div class="card center" style="border-style:dashed">
       <button class="btn-primary" data-action="new" style="width:100%">+ Neues Spiel</button>
     </div>
-    <a class="btn-ghost" href="${PAYPAL_URL}" target="_blank" rel="noopener noreferrer" style="width:100%;margin-bottom:14px">☕ Entwickler unterstützen</a>
+    <div class="btn-row" style="margin-bottom:14px">
+      <a class="btn-ghost" href="${PAYPAL_URL}" target="_blank" rel="noopener noreferrer">☕ Entwickler unterstützen</a>
+      <a class="btn-ghost" href="${FEEDBACK_MAILTO}">✉️ Feedback geben</a>
+    </div>
     <p class="center muted" style="font-size:0.8rem">Rauf & Runter – Punkte App · © ${new Date().getFullYear()} Thomas Kellner</p>
   `;
 }
@@ -333,7 +341,15 @@ function renderNew() {
       <label>Name des Spiels</label>
       <input data-field="name" value="${esc(d.name)}" placeholder="z.B. Spieleabend" />
       <label>Bis wie viele Karten? (Höhepunkt)</label>
-      <input data-field="maxCards" type="number" inputmode="numeric" min="1" max="15" value="${d.maxCards}" />
+      <div class="stepper">
+        <button type="button" class="stepper-btn" data-action="maxcards-dec" aria-label="Weniger Karten" ${
+          d.maxCards <= 1 ? 'disabled' : ''
+        }>−</button>
+        <input class="stepper-value" data-field="maxCards" type="number" inputmode="numeric" min="1" max="15" value="${d.maxCards}" />
+        <button type="button" class="stepper-btn" data-action="maxcards-inc" aria-label="Mehr Karten" ${
+          d.maxCards >= 15 ? 'disabled' : ''
+        }>+</button>
+      </div>
       <label class="check-row">
         <input type="checkbox" data-field="playDown" ${d.upOnly ? '' : 'checked'} />
         <span>Nach dem Höhepunkt wieder herunterspielen</span>
@@ -978,6 +994,45 @@ function scrollTableToLatest() {
 }
 
 /**
+ * Avatar-Leiste ganz oben in der Zuschaueransicht — der einzige Ort, an dem
+ * alle Spieler mit Profilbild dauerhaft sichtbar sind, auch nach der letzten
+ * Runde (wenn die Karte „Aktuelle Runde" schon verschwunden ist). Vor der
+ * ersten fertigen Runde in Sitzreihenfolge ohne Platz/Punkte, sonst nach
+ * Punktestand sortiert mit Platzierung.
+ */
+function playerStrip(game) {
+  const doneRounds = game.rounds.filter((r) => r.done);
+  if (!doneRounds.length) {
+    const items = seatSorted(game)
+      .map(
+        (p) => `
+        <div class="player-strip-item">
+          ${avatarHtml(profileOf(p), 52)}
+          <span class="player-strip-name">${esc(p.name)}</span>
+        </div>`,
+      )
+      .join('');
+    return `<div class="card player-strip">${items}</div>`;
+  }
+
+  const { byPlayer, ranking } = standings(game);
+  const byId = Object.fromEntries(game.players.map((p) => [p.id, p]));
+  const items = ranking
+    .map((r) => {
+      const p = byId[r.playerId];
+      const place = r.rank === 1 ? '🥇 ' : `${r.rank}. `;
+      return `
+        <div class="player-strip-item">
+          ${avatarHtml(profileOf(p), 52)}
+          <span class="player-strip-name">${place}${esc(p.name)}</span>
+          <span class="player-strip-score">${fmtScore(byPlayer[p.id].total)}</span>
+        </div>`;
+    })
+    .join('');
+  return `<div class="card player-strip">${items}</div>`;
+}
+
+/**
  * Live-Status der aktuell laufenden Runde für die Zuschaueransicht: Geber &
  * Kartenzahl, wer bereits angesagt hat (und was), wie viele Stiche noch
  * offen/schon zu viel angesagt sind, wer als Nächstes dran ist — bzw. sobald
@@ -1047,11 +1102,10 @@ function currentRoundCard(game) {
 
   return `
     <div class="card">
-      <div class="row spread">
-        <h2 style="margin:0">Aktuelle Runde</h2>
-        <span class="pill">${cc} ${cc === 1 ? 'Karte' : 'Karten'}</span>
-      </div>
-      <p class="muted" style="margin:6px 0 0;font-size:0.85rem">🃏 ${esc(dealer.name)} gibt${
+      <h2 style="margin:0">Aktuelle Runde</h2>
+      <p class="dealer-line">${avatarNameHtml(profileOf(dealer), dealer.name)} gibt ${cc} ${
+    cc === 1 ? 'Karte' : 'Karten'
+  } 🃏${
     trump ? ` · <span class="trump"><span class="dot dot-${trump}"></span>${trump}</span>` : ''
   }</p>
       <h3 style="margin-top:16px">Ansagen</h3>
@@ -1106,6 +1160,7 @@ function renderViewer() {
     <p class="muted progress" style="margin-top:0">Runde ${Math.min(done + 1, game.rounds.length)}/${
     game.rounds.length
   } · nur Ansicht</p>
+    ${playerStrip(game)}
     ${currentRoundCard(game)}
     ${commentaryCard(game)}
     ${standingsTable(game)}
@@ -1599,6 +1654,16 @@ async function onClick(e) {
     case 'set-axis':
       ui.tableTranspose = v === 'rounds';
       renderActiveView();
+      break;
+
+    case 'maxcards-dec':
+    case 'maxcards-inc':
+      readDraftFromInputs();
+      ui.draft.maxCards = Math.max(
+        1,
+        Math.min(15, ui.draft.maxCards + (action === 'maxcards-inc' ? 1 : -1)),
+      );
+      renderNew();
       break;
 
     case 'add-player':
