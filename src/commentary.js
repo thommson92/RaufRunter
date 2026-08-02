@@ -15,27 +15,76 @@ function fmtSigned(n) {
   return n > 0 ? `+${n}` : `${n}`;
 }
 
+// "A" | "A und B" | "A, B und C" — kein Oxford-Komma, letzte Verbindung immer "und".
 function joinNames(entries) {
-  return entries.map((e) => e.name).join(' und ');
+  const names = entries.map((e) => e.name);
+  if (names.length <= 2) return names.join(' und ');
+  return `${names.slice(0, -1).join(', ')} und ${names[names.length - 1]}`;
+}
+
+function allSame(entries, key) {
+  return entries.every((e) => e[key] === entries[0][key]);
+}
+
+// Ansage vs. gemachte Stiche ist nicht symmetrisch: "nur X gemacht" ergibt nur
+// Sinn, wenn X kleiner als die Ansage ist. Bei zu vielen Stichen (X > Ansage)
+// braucht es die Gegenrichtung, sonst liest sich "2 angesagt, nur 3 gemacht"
+// wie ein Fehler im Text.
+function trickPhrase(bid, tricks) {
+  return tricks < bid ? `nur ${tricks} geholt` : `gleich ${tricks} abgeräumt`;
+}
+
+function tricksNoun(bid, tricks) {
+  return tricks < bid ? `nur ${tricks} Stiche` : `gleich ${tricks} Stiche`;
 }
 
 function heroLine(seed, heroes) {
-  const hero = heroes[0];
   const names = joinNames(heroes);
+  const hero = heroes[0];
+  if (heroes.length === 1) {
+    return pick(seed, [
+      `${names} liest das Spiel wie ein Buch: ${hero.bid} angesagt, ${hero.tricks} geholt — ${fmtSigned(hero.score)} Punkte!`,
+      `Chapeau, ${names}! Ansage ${hero.bid}, genau ${hero.tricks} geholt — sauber eingetütet.`,
+      `${names} bleibt eiskalt und trifft die Ansage von ${hero.bid} exakt — ${fmtSigned(hero.score)} Punkte wandern aufs Konto.`,
+    ]);
+  }
+  // Gleicher Score heißt nicht zwingend gleiche Ansage/Stiche — Zahlen im
+  // Plural nur nennen, wenn wirklich alle dieselbe Ansage und Stichzahl haben.
+  if (allSame(heroes, 'bid') && allSame(heroes, 'tricks')) {
+    return pick(seed, [
+      `${names} lesen das Spiel wie ein Buch: ${hero.bid} angesagt, ${hero.tricks} geholt — je ${fmtSigned(hero.score)} Punkte!`,
+      `Chapeau, ${names}! Ansage ${hero.bid}, genau ${hero.tricks} geholt — sauber eingetütet.`,
+      `${names} bleiben eiskalt und treffen die Ansage von ${hero.bid} exakt.`,
+    ]);
+  }
   return pick(seed, [
-    `${names} liest das Spiel wie ein Buch: ${hero.bid} angesagt, ${hero.tricks} geholt — ${fmtSigned(hero.score)} Punkte!`,
-    `Chapeau, ${names}! Ansage ${hero.bid}, genau ${hero.tricks} geholt — sauber eingetütet.`,
-    `${names} bleibt eiskalt und trifft die Ansage von ${hero.bid} exakt — ${fmtSigned(hero.score)} Punkte wandern aufs Konto.`,
+    `${names} lesen das Spiel wie ein Buch und treffen ihre Ansage exakt — je ${fmtSigned(hero.score)} Punkte!`,
+    `Chapeau, ${names}! Alle treffen ihre Ansage exakt — sauber eingetütet.`,
+    `${names} bleiben eiskalt und treffen ihre Ansage exakt.`,
   ]);
 }
 
 function villainLine(seed, villains) {
-  const villain = villains[0];
   const names = joinNames(villains);
+  const villain = villains[0];
+  if (villains.length === 1) {
+    return pick(seed, [
+      `${names} erwischt's dagegen kalt: ${villain.bid} angesagt, ${trickPhrase(villain.bid, villain.tricks)} — bitter, ${fmtSigned(villain.score)} Punkte.`,
+      `Das ging in die Hose: ${names} verschätzt sich (${villain.bid} zu ${villain.tricks}) und rutscht ${Math.abs(villain.score)} Punkte in den Keller.`,
+      `Für ${names} lief's gar nicht: Ansage ${villain.bid}, am Ende ${tricksNoun(villain.bid, villain.tricks)}.`,
+    ]);
+  }
+  if (allSame(villains, 'bid') && allSame(villains, 'tricks')) {
+    return pick(seed, [
+      `${names} erwischt's dagegen kalt: ${villain.bid} angesagt, ${trickPhrase(villain.bid, villain.tricks)} — bitter, je ${fmtSigned(villain.score)} Punkte.`,
+      `Das ging in die Hose: ${names} verschätzen sich (${villain.bid} zu ${villain.tricks}) und rutschen ${Math.abs(villain.score)} Punkte in den Keller.`,
+      `Für ${names} lief's gar nicht: Ansage ${villain.bid}, am Ende ${tricksNoun(villain.bid, villain.tricks)}.`,
+    ]);
+  }
   return pick(seed, [
-    `${names} erwischt's dagegen kalt: ${villain.bid} angesagt, nur ${villain.tricks} geholt — bitter, ${fmtSigned(villain.score)} Punkte.`,
-    `Das ging in die Hose: ${names} verschätzt sich (${villain.bid} zu ${villain.tricks}) und rutscht ${Math.abs(villain.score)} Punkte in den Keller.`,
-    `Für ${names} lief's gar nicht: Ansage ${villain.bid}, am Ende nur ${villain.tricks} Stiche.`,
+    `${names} erwischt's dagegen kalt: alle verschätzen sich — bitter, je ${fmtSigned(villain.score)} Punkte.`,
+    `Das ging in die Hose: ${names} verschätzen sich und rutschen ${Math.abs(villain.score)} Punkte in den Keller.`,
+    `Für ${names} lief's gar nicht: Die Ansage geht bei allen daneben.`,
   ]);
 }
 
@@ -76,7 +125,13 @@ function zeroBidLine(seed, zeroBids) {
 }
 
 function leadLine(seed, leaders) {
-  const names = leaders.map((l) => l.name).join(' und ');
+  const names = joinNames(leaders);
+  if (leaders.length > 1) {
+    return pick(seed, [
+      `Und das bedeutet: ${names} übernehmen die Tabellenführung!`,
+      `Die Führung wechselt den Besitzer — ${names} liegen jetzt vorn!`,
+    ]);
+  }
   return pick(seed, [
     `Und das bedeutet: ${names} übernimmt die Tabellenführung!`,
     `Die Führung wechselt den Besitzer — ${names} liegt jetzt vorn!`,
@@ -133,7 +188,12 @@ export function generateRoundCommentary(events) {
   // schaffen es höchstens MAX_HIGHLIGHTS in den fertigen Kommentar.
   const candidates = [];
 
-  if (heroes[0] && !allCorrect) {
+  // heroes[0].correct reicht als Prüfung für die ganze Gruppe: bei mind. einer
+  // richtigen Ansage im Tisch liegt der Bestscore (max ±) immer bei den
+  // Richtigen (Punkteformel: −10+Stiche < +10+Stiche, Lücke größer als jede
+  // mögliche Stichdifferenz). Ohne die Prüfung würde bei "allWrong" der am
+  // wenigsten falsch Liegende fälschlich als Ansage-Treffer gefeiert.
+  if (heroes[0] && !allCorrect && heroes[0].correct) {
     candidates.push(heroLine(seed + 1, heroes));
   }
   if (villains[0] && !allWrong && villains[0].score < 0) {
