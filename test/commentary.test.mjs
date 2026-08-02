@@ -14,7 +14,7 @@ test('generateRoundCommentary: deterministisch bei gleichen Ereignissen', () => 
       { playerId: 'a', name: 'Anna', bid: 2, tricks: 2, score: 12, correct: true },
       { playerId: 'b', name: 'Ben', bid: 1, tricks: 0, score: -9, correct: false },
     ],
-    heroes: [{ playerId: 'a', name: 'Anna', bid: 2, tricks: 2, score: 12 }],
+    heroes: [{ playerId: 'a', name: 'Anna', bid: 2, tricks: 2, score: 12, correct: true }],
     villains: [{ playerId: 'b', name: 'Ben', bid: 1, tricks: 0, score: -9 }],
     zeroBids: [],
     leaders: [{ id: 'a', name: 'Anna' }],
@@ -38,7 +38,7 @@ test('generateRoundCommentary: Reihenschuss, wenn alle richtig lagen', () => {
       { playerId: 'a', name: 'Anna', bid: 1, tricks: 1, score: 11, correct: true },
       { playerId: 'b', name: 'Ben', bid: 0, tricks: 0, score: 10, correct: true },
     ],
-    heroes: [{ playerId: 'a', name: 'Anna', bid: 1, tricks: 1, score: 11 }],
+    heroes: [{ playerId: 'a', name: 'Anna', bid: 1, tricks: 1, score: 11, correct: true }],
     villains: [{ playerId: 'b', name: 'Ben', bid: 0, tricks: 0, score: 10 }],
     zeroBids: [{ playerId: 'b', name: 'Ben', bid: 0, tricks: 0 }],
     leaders: [{ id: 'a', name: 'Anna' }],
@@ -60,7 +60,7 @@ test('generateRoundCommentary: Nullansage wird gewürdigt (Treffer & Fehlschlag)
       { playerId: 'a', name: 'Anna', bid: 0, tricks: 0, score: 10, correct: true },
       { playerId: 'b', name: 'Ben', bid: 2, tricks: 2, score: 12, correct: true },
     ],
-    heroes: [{ playerId: 'b', name: 'Ben', bid: 2, tricks: 2, score: 12 }],
+    heroes: [{ playerId: 'b', name: 'Ben', bid: 2, tricks: 2, score: 12, correct: true }],
     villains: [{ playerId: 'a', name: 'Anna', bid: 0, tricks: 0, score: 10 }],
     leaders: [], leadChanged: false, climbers: [], allCorrect: true, allWrong: false,
   };
@@ -93,7 +93,7 @@ test('generateRoundCommentary: mehrere Nullansagen werden in EINEM Satz zusammen
       { playerId: 'b', name: 'Ben', bid: 0, tricks: 0, score: 10, correct: true },
       { playerId: 'c', name: 'Cara', bid: 1, tricks: 1, score: 11, correct: true },
     ],
-    heroes: [{ playerId: 'c', name: 'Cara', bid: 1, tricks: 1, score: 11 }],
+    heroes: [{ playerId: 'c', name: 'Cara', bid: 1, tricks: 1, score: 11, correct: true }],
     villains: [{ playerId: 'a', name: 'Anna', bid: 0, tricks: 0, score: 10 }],
     zeroBids: [
       { playerId: 'a', name: 'Anna', bid: 0, tricks: 0 },
@@ -117,7 +117,7 @@ test('generateRoundCommentary: höchstens Eröffnung + 2 weitere Highlights', ()
       { playerId: 'b', name: 'Ben', bid: 3, tricks: 3, score: 13, correct: true },
       { playerId: 'c', name: 'Cara', bid: 1, tricks: 4, score: -7, correct: false },
     ],
-    heroes: [{ playerId: 'b', name: 'Ben', bid: 3, tricks: 3, score: 13 }],
+    heroes: [{ playerId: 'b', name: 'Ben', bid: 3, tricks: 3, score: 13, correct: true }],
     villains: [{ playerId: 'c', name: 'Cara', bid: 1, tricks: 4, score: -7 }],
     zeroBids: [{ playerId: 'a', name: 'Anna', bid: 0, tricks: 0 }],
     leaders: [{ id: 'b', name: 'Ben' }],
@@ -143,8 +143,8 @@ test('generateRoundCommentary: zwei Helden bei Gleichstand (gleiche Ansage/Stich
       { playerId: 'c', name: 'Cara', bid: 1, tricks: 0, score: -9, correct: false },
     ],
     heroes: [
-      { playerId: 'a', name: 'Anna', bid: 2, tricks: 2, score: 12 },
-      { playerId: 'b', name: 'Ben', bid: 2, tricks: 2, score: 12 },
+      { playerId: 'a', name: 'Anna', bid: 2, tricks: 2, score: 12, correct: true },
+      { playerId: 'b', name: 'Ben', bid: 2, tricks: 2, score: 12, correct: true },
     ],
     villains: [], zeroBids: [], leaders: [], leadChanged: false, climbers: [],
     allCorrect: false, allWrong: false,
@@ -164,8 +164,8 @@ test('generateRoundCommentary: zwei Helden bei Gleichstand mit unterschiedlicher
       { playerId: 'c', name: 'Cara', bid: 1, tricks: 3, score: -8, correct: false },
     ],
     heroes: [
-      { playerId: 'a', name: 'Anna', bid: 2, tricks: 2, score: 12 },
-      { playerId: 'b', name: 'Ben', bid: 0, tricks: 0, score: 12 },
+      { playerId: 'a', name: 'Anna', bid: 2, tricks: 2, score: 12, correct: true },
+      { playerId: 'b', name: 'Ben', bid: 0, tricks: 0, score: 12, correct: true },
     ],
     villains: [], zeroBids: [], leaders: [], leadChanged: false, climbers: [],
     allCorrect: false, allWrong: false,
@@ -182,7 +182,7 @@ test('generateRoundCommentary: Bösewicht mit mehr Stichen als angesagt ⇒ kein
       { playerId: 'a', name: 'Anna', bid: 5, tricks: 5, score: 15, correct: true },
       { playerId: 'b', name: 'Ben', bid: 2, tricks: 3, score: -7, correct: false },
     ],
-    heroes: [{ playerId: 'a', name: 'Anna', bid: 5, tricks: 5, score: 15 }],
+    heroes: [{ playerId: 'a', name: 'Anna', bid: 5, tricks: 5, score: 15, correct: true }],
     villains: [{ playerId: 'b', name: 'Ben', bid: 2, tricks: 3, score: -7 }],
     zeroBids: [], leaders: [], leadChanged: false, climbers: [],
     allCorrect: false, allWrong: false,
@@ -199,13 +199,84 @@ test('generateRoundCommentary: Bösewicht mit weniger Stichen als angesagt ⇒ "
       { playerId: 'a', name: 'Anna', bid: 5, tricks: 5, score: 15, correct: true },
       { playerId: 'b', name: 'Ben', bid: 3, tricks: 1, score: -9, correct: false },
     ],
-    heroes: [{ playerId: 'a', name: 'Anna', bid: 5, tricks: 5, score: 15 }],
+    heroes: [{ playerId: 'a', name: 'Anna', bid: 5, tricks: 5, score: 15, correct: true }],
     villains: [{ playerId: 'b', name: 'Ben', bid: 3, tricks: 1, score: -9 }],
     zeroBids: [], leaders: [], leadChanged: false, climbers: [],
     allCorrect: false, allWrong: false,
   };
   const text = generateRoundCommentary(events);
   assert.match(text, /nur 1 geholt/);
+});
+
+test('generateRoundCommentary: bei allWrong wird niemand fälschlich als Ansage-Treffer gefeiert', () => {
+  // Regression: heroes = perPlayer.filter(score === maxScore), unabhängig von
+  // "correct". Bei allWrong können zwei gleich schlecht getroffene Spieler den
+  // Bestscore teilen — heroLine darf sie dann nicht als "trifft die Ansage
+  // exakt" feiern, nur weil sie untereinander dieselbe (falsche) Ansage haben.
+  const events = {
+    roundIndex: 2,
+    perPlayer: [
+      { playerId: 'a', name: 'Anna', bid: 2, tricks: 1, score: -9, correct: false },
+      { playerId: 'b', name: 'Ben', bid: 2, tricks: 1, score: -9, correct: false },
+    ],
+    heroes: [
+      { playerId: 'a', name: 'Anna', bid: 2, tricks: 1, score: -9, correct: false },
+      { playerId: 'b', name: 'Ben', bid: 2, tricks: 1, score: -9, correct: false },
+    ],
+    villains: [
+      { playerId: 'a', name: 'Anna', bid: 2, tricks: 1, score: -9, correct: false },
+      { playerId: 'b', name: 'Ben', bid: 2, tricks: 1, score: -9, correct: false },
+    ],
+    zeroBids: [], leaders: [], leadChanged: false, climbers: [],
+    allCorrect: false, allWrong: true,
+  };
+  const text = generateRoundCommentary(events);
+  assert.doesNotMatch(text, /exakt|eingetütet|liest das Spiel|lesen das Spiel/);
+});
+
+test('generateRoundCommentary: mehrere Bösewichte bei Gleichstand (gleiche Ansage/Stiche) ⇒ Plural-Verb', () => {
+  const events = {
+    roundIndex: 2, // villainLine-Seed = 4 ⇒ zweite Variante ("Das ging in die Hose …")
+    perPlayer: [
+      { playerId: 'a', name: 'Anna', bid: 5, tricks: 5, score: 15, correct: true },
+      { playerId: 'b', name: 'Ben', bid: 3, tricks: 1, score: -9, correct: false },
+      { playerId: 'c', name: 'Cara', bid: 3, tricks: 1, score: -9, correct: false },
+    ],
+    heroes: [{ playerId: 'a', name: 'Anna', bid: 5, tricks: 5, score: 15, correct: true }],
+    villains: [
+      { playerId: 'b', name: 'Ben', bid: 3, tricks: 1, score: -9 },
+      { playerId: 'c', name: 'Cara', bid: 3, tricks: 1, score: -9 },
+    ],
+    zeroBids: [], leaders: [], leadChanged: false, climbers: [],
+    allCorrect: false, allWrong: false,
+  };
+  const text = generateRoundCommentary(events);
+  assert.match(text, /Ben und Cara/);
+  assert.match(text, /verschätzen sich/); // Plural, nicht "verschätzt sich"
+  assert.match(text, /rutschen/); // Plural, nicht "rutscht"
+  assert.match(text, /3 zu 1/); // gleiche Ansage/Stiche ⇒ Zahlen dürfen genannt werden
+});
+
+test('generateRoundCommentary: mehrere Bösewichte mit unterschiedlicher Ansage ⇒ keine Zahlen im Plural', () => {
+  const events = {
+    roundIndex: 2, // villainLine-Seed = 4 ⇒ zweite Variante ("Das ging in die Hose …")
+    perPlayer: [
+      { playerId: 'a', name: 'Anna', bid: 5, tricks: 5, score: 15, correct: true },
+      { playerId: 'b', name: 'Ben', bid: 3, tricks: 1, score: -9, correct: false },
+      { playerId: 'c', name: 'Cara', bid: 1, tricks: 3, score: -9, correct: false },
+    ],
+    heroes: [{ playerId: 'a', name: 'Anna', bid: 5, tricks: 5, score: 15, correct: true }],
+    villains: [
+      { playerId: 'b', name: 'Ben', bid: 3, tricks: 1, score: -9 },
+      { playerId: 'c', name: 'Cara', bid: 1, tricks: 3, score: -9 },
+    ],
+    zeroBids: [], leaders: [], leadChanged: false, climbers: [],
+    allCorrect: false, allWrong: false,
+  };
+  const text = generateRoundCommentary(events);
+  assert.match(text, /Ben und Cara/);
+  assert.match(text, /verschätzen sich/);
+  assert.doesNotMatch(text, /\d zu \d/); // unterschiedliche Ansagen ⇒ kein Ansage-zu-Stiche-Vergleich im Bösewicht-Satz
 });
 
 test('generateRoundCommentary: drei Namen werden ohne Oxford-Komma verbunden', () => {

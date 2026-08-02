@@ -188,7 +188,12 @@ export function generateRoundCommentary(events) {
   // schaffen es höchstens MAX_HIGHLIGHTS in den fertigen Kommentar.
   const candidates = [];
 
-  if (heroes[0] && !allCorrect) {
+  // heroes[0].correct reicht als Prüfung für die ganze Gruppe: bei mind. einer
+  // richtigen Ansage im Tisch liegt der Bestscore (max ±) immer bei den
+  // Richtigen (Punkteformel: −10+Stiche < +10+Stiche, Lücke größer als jede
+  // mögliche Stichdifferenz). Ohne die Prüfung würde bei "allWrong" der am
+  // wenigsten falsch Liegende fälschlich als Ansage-Treffer gefeiert.
+  if (heroes[0] && !allCorrect && heroes[0].correct) {
     candidates.push(heroLine(seed + 1, heroes));
   }
   if (villains[0] && !allWrong && villains[0].score < 0) {
