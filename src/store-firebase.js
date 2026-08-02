@@ -22,12 +22,18 @@ const GAMES = 'games';
 const gameRef = (id) => doc(db, GAMES, id);
 
 export const fb = {
-  /** Alle Spiele, neueste zuerst. (Einmalige Abfrage; Cache-fähig.) */
+  /**
+   * Alle Spiele, neueste zuerst. (Einmalige Abfrage; Cache-fähig.)
+   * Sortiert nach Erstelldatum, nicht nach letzter Änderung — ein Batch-Write
+   * (z.B. beim nachträglichen Zuordnen von Spielerprofilen) setzt `updatedAt`
+   * sonst bei allen Spielen fast gleichzeitig und macht die Reihenfolge
+   * zufällig. Fallback auf `updatedAt` nur für Altdaten ohne `createdAt`.
+   */
   async listGames() {
     const snap = await getDocs(collection(db, GAMES));
     return snap.docs
       .map((d) => d.data())
-      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+      .sort((a, b) => (b.createdAt ?? b.updatedAt ?? 0) - (a.createdAt ?? a.updatedAt ?? 0));
   },
 
   async getGame(id) {
