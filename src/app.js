@@ -48,6 +48,10 @@ import { generateRoundCommentary } from './commentary.js';
 
 const appEl = document.getElementById('app');
 
+// Spenden-Link auf der Startseite. Bewusst der paypal.me-Handle statt der
+// E-Mail-Adresse, damit die Adresse nicht im öffentlichen HTML crawlbar ist.
+const PAYPAL_URL = 'https://paypal.me/Thommyguun';
+
 // Flüchtiger UI-Zustand (nicht persistiert).
 const ui = {
   draft: null,        // Entwurf im "Neues Spiel"-Formular
@@ -251,6 +255,7 @@ async function renderHome() {
     <div class="card center" style="border-style:dashed">
       <button class="btn-primary" data-action="new" style="width:100%">+ Neues Spiel</button>
     </div>
+    <a class="btn-ghost" href="${PAYPAL_URL}" target="_blank" rel="noopener noreferrer" style="width:100%;margin-bottom:14px">☕ Entwickler unterstützen</a>
     <p class="center muted" style="font-size:0.8rem">Rauf & Runter – Punkte App · © ${new Date().getFullYear()} Thomas Kellner</p>
   `;
 }
@@ -298,7 +303,7 @@ function renderNew() {
   if (!ui.draft) {
     ui.draft = {
       name: '',
-      maxCards: 7,
+      maxCards: 10,
       players: [null, null], // Profil-IDs in Sitzreihenfolge
       restrictLastBid: true,
       upOnly: false,
@@ -328,7 +333,7 @@ function renderNew() {
       <label>Name des Spiels</label>
       <input data-field="name" value="${esc(d.name)}" placeholder="z.B. Spieleabend" />
       <label>Bis wie viele Karten? (Höhepunkt)</label>
-      <input data-field="maxCards" type="number" inputmode="numeric" min="1" max="20" value="${d.maxCards}" />
+      <input data-field="maxCards" type="number" inputmode="numeric" min="1" max="15" value="${d.maxCards}" />
       <label class="check-row">
         <input type="checkbox" data-field="playDown" ${d.upOnly ? '' : 'checked'} />
         <span>Nach dem Höhepunkt wieder herunterspielen</span>
@@ -1355,7 +1360,7 @@ function readDraftFromInputs() {
   const name = appEl.querySelector('[data-field="name"]');
   const max = appEl.querySelector('[data-field="maxCards"]');
   if (name) ui.draft.name = name.value;
-  if (max) ui.draft.maxCards = Math.max(1, Math.min(20, parseInt(max.value, 10) || 1));
+  if (max) ui.draft.maxCards = Math.max(1, Math.min(15, parseInt(max.value, 10) || 1));
   const restrict = appEl.querySelector('[data-field="restrictLastBid"]');
   if (restrict) ui.draft.restrictLastBid = restrict.checked;
   const playDown = appEl.querySelector('[data-field="playDown"]');
