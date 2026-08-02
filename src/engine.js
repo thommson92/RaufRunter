@@ -340,6 +340,38 @@ export function trumpCounts(game) {
 }
 
 /**
+ * Auswertung einer einzelnen Runde für ihren Geber (letzter Ansagender):
+ * war die verbotene Ansage überhaupt bindend, und falls ja, lag er richtig
+ * oder falsch? `null`, wenn die Runde (noch) nicht vollständig auswertbar ist.
+ * Gemeinsamer Kern für `dealerMalusStats` (Bilanz übers ganze Spiel) und
+ * `roundEvents` (Einzelrunden-Fakt fürs Rundenkommentar).
+ * @param {object[]} seated Spieler in Sitzreihenfolge
+ * @param {object} round
+ * @param {boolean} restrictActive
+ * @returns {null | {dealerId:string, dealerName:string, bound:boolean, correct:boolean}}
+ */
+function dealerRoundOutcome(seated, round, restrictActive) {
+  const order = biddingOrder(seated, round.index);
+  if (!order.length) return null;
+  const dealer = order[order.length - 1];
+
+  let sumOthers = 0;
+  let allOthersBid = true;
+  for (const p of seated) {
+    if (p.id === dealer.id) continue;
+    const b = round.bids?.[p.id];
+    if (b == null) { allOthersBid = false; break; }
+    sumOthers += b;
+  }
+  const bid = round.bids?.[dealer.id];
+  const tricks = round.tricks?.[dealer.id];
+  if (!allOthersBid || bid == null || tricks == null) return null; // Runde nicht auswertbar
+
+  const bound = restrictActive && forbiddenBid(round.cardCount, sumOthers) != null;
+  return { dealerId: dealer.id, dealerName: dealer.name, bound, correct: bid === tricks };
+}
+
+/**
  * Bilanz je Spieler, wie oft er als letzter Ansagender (Geber) dran war —
  * und was das für ihn bedeutet hat. Jede Geber-Runde fällt in genau eine
  * von drei Kategorien:
@@ -361,31 +393,97 @@ export function dealerMalusStats(game) {
 
   for (const round of game.rounds || []) {
     if (!round.done) continue;
-    const order = biddingOrder(seated, round.index);
-    if (!order.length) continue;
-    const dealer = order[order.length - 1];
+    const outcome = dealerRoundOutcome(seated, round, restrictActive);
+    if (!outcome) continue;
 
-    let sumOthers = 0;
-    let allOthersBid = true;
-    for (const p of seated) {
-      if (p.id === dealer.id) continue;
-      const b = round.bids?.[p.id];
-      if (b == null) { allOthersBid = false; break; }
-      sumOthers += b;
-    }
-    const bid = round.bids?.[dealer.id];
-    const tricks = round.tricks?.[dealer.id];
-    if (!allOthersBid || bid == null || tricks == null) continue; // Runde nicht auswertbar
-
-    const s = stats[dealer.id];
+    const s = stats[outcome.dealerId];
     s.dealerRounds += 1;
-
-    const bound = restrictActive && forbiddenBid(round.cardCount, sumOthers) != null;
-    if (!bound) s.neutral += 1;
-    else if (bid === tricks) s.malusCorrect += 1;
+    if (!outcome.bound) s.neutral += 1;
+    else if (outcome.correct) s.malusCorrect += 1;
     else s.malusWrong += 1;
   }
   return stats;
+}
+
+/**
+ * `dealerRoundOutcome` für eine einzelne, bereits fertige Runde (Grundlage
+ * für den Rundenkommentar: hat der Geber die Ansage-Falle gemeistert oder
+ * ist er daran gescheitert?). `null`, wenn die Runde nicht existiert, nicht
+ * fertig oder nicht auswertbar ist.
+ * @param {object} game
+ * @param {number} roundIndex
+ * @returns {null | {dealerId:string, dealerName:string, bound:boolean, correct:boolean}}
+ */
+export function dealerOutcomeForRound(game, roundIndex) {
+  const round = game.rounds?.[roundIndex];
+  if (!round || !round.done) return null;
+  const seated = [...game.players].sort((a, b) => a.seatOrder - b.seatOrder);
+  const restrictActive = game.restrictLastBid !== false;
+  return dealerRoundOutcome(seated, round, restrictActive);
+}
+
+/**
+ * Aktuelle Serie richtiger bzw. falscher Ansagen je Spieler, gemessen bis
+ * einschließlich `roundIndex` (nicht die längste je erreichte Serie — siehe
+ * dafür `longestCorrectStreak` — sondern die, die genau jetzt noch läuft).
+ * Grundlage für "X ist seit N Runden am Stück richtig"-Kommentare.
+ * @param {object} game
+ * @param {number} roundIndex
+ * @returns {Object<string, {type: 'correct'|'wrong'|null, length: number}>}
+ */
+export function currentStreaks(game, roundIndex) {
+  const state = {};
+  for (const p of game.players) state[p.id] = { type: null, length: 0 };
+
+  const rounds = (game.rounds || [])
+    .filter((r) => r.done && r.index <= roundIndex)
+    .sort((a, b) => a.index - b.index);
+
+  for (const round of rounds) {
+    for (const p of game.players) {
+      const bid = round.bids?.[p.id];
+      const tricks = round.tricks?.[p.id];
+      if (bid == null || tricks == null) continue;
+      const type = bid === tricks ? 'correct' : 'wrong';
+      const s = state[p.id];
+      s.length = s.type === type ? s.length + 1 : 1;
+      s.type = type;
+    }
+  }
+  return state;
+}
+
+/**
+ * Tendenz je Spieler, über- oder unterzuansagen — Durchschnitt aus
+ * (gemachte Stiche − Ansage) über alle gespielten Runden bis einschließlich
+ * `roundIndex`. Positiv ⇒ holt im Schnitt mehr Stiche als angesagt (sagt zu
+ * vorsichtig an), negativ ⇒ holt im Schnitt weniger (sagt zu forsch an).
+ * @param {object} game
+ * @param {number} roundIndex
+ * @returns {Object<string, {avgDiff:number, attempts:number}>}
+ */
+export function biddingBias(game, roundIndex) {
+  const sums = {};
+  for (const p of game.players) sums[p.id] = { diffSum: 0, attempts: 0 };
+
+  const rounds = (game.rounds || []).filter((r) => r.done && r.index <= roundIndex);
+  for (const round of rounds) {
+    for (const p of game.players) {
+      const bid = round.bids?.[p.id];
+      const tricks = round.tricks?.[p.id];
+      if (bid == null || tricks == null) continue;
+      const s = sums[p.id];
+      s.diffSum += tricks - bid;
+      s.attempts += 1;
+    }
+  }
+
+  const result = {};
+  for (const p of game.players) {
+    const s = sums[p.id];
+    result[p.id] = { avgDiff: s.attempts ? s.diffSum / s.attempts : 0, attempts: s.attempts };
+  }
+  return result;
 }
 
 /**
@@ -466,6 +564,15 @@ export function roundEvents(game, roundIndex) {
     }))
     .filter((e) => e.prevRank != null && e.rank != null && e.prevRank !== e.rank);
 
+  // Weitere Themen fürs Rundenkommentar (Serien, Geber-Falle, Ansage-Tendenz,
+  // krasse Fehlschätzungen) — reine Zusatzfakten, ändern nichts an den Feldern
+  // oben, die schon andere Ansichten (Statistiken) mitbenutzen.
+  const streaks = currentStreaks(game, roundIndex);
+  const dealerOutcome = dealerOutcomeForRound(game, roundIndex);
+  const bias = biddingBias(game, roundIndex);
+  // Nullansagen haben mit zeroBidLine schon eine eigene, treffendere Formulierung.
+  const wildMisses = perPlayer.filter((e) => e.bid !== 0 && Math.abs(e.bid - e.tricks) >= 2);
+
   return {
     roundIndex,
     cardCount: round.cardCount,
@@ -479,6 +586,10 @@ export function roundEvents(game, roundIndex) {
     leaders,
     leadChanged,
     climbers,
+    streaks,
+    dealerOutcome,
+    bias,
+    wildMisses,
     allCorrect: wrongPlayers.length === 0,
     allWrong: correctPlayers.length === 0,
   };
