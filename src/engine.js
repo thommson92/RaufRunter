@@ -240,7 +240,7 @@ export function moneyPayouts(game) {
       .sort((a, b) => a.rank - b.rank);
   }
 
-  const stake = game.stake || 0;
+  const stake = Number.isFinite(game.stake) ? game.stake : 0;
   const pot = stake * ranking.length;
   const multiples = PAYOUT_MULTIPLES[game.payoutMode] || {};
 

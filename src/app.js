@@ -285,10 +285,11 @@ async function renderHome() {
           const date = g.createdAt
             ? new Date(g.createdAt).toLocaleDateString('de-DE')
             : null;
+          const moneyBadge = g.moneyEnabled ? '💰 ' : '';
           return `
             <button class="card list-item" data-action="open" data-id="${esc(g.id)}">
               <div class="meta">
-                <strong>${esc(g.name)}</strong><br/>
+                <strong>${moneyBadge}${esc(g.name)}</strong><br/>
                 <small>${date ? `${date} · ` : ''}${g.players.length} Spieler · Runde ${Math.min(done + 1, total)}/${total}${
             done === total ? ' · fertig' : ''
           }${lead && done ? ` · 🥇 ${esc(lead.name)}` : ''}</small>
@@ -377,9 +378,15 @@ function moneyCard(fields, playerCount) {
   const modeOptions = Object.entries(PAYOUT_MODE_LABELS)
     .map(([value, label]) => {
       const disabled = value === 'podium-cascade' && playerCount < 3;
-      return `<option value="${value}" ${fields.payoutMode === value ? 'selected' : ''} ${
-        disabled ? 'disabled' : ''
-      }>${esc(label)}${disabled ? ' (ab 3 Spielern)' : ''}</option>`;
+      const isSelected = fields.payoutMode === value;
+      return `
+        <label class="payout-option ${isSelected ? 'selected' : ''} ${disabled ? 'disabled' : ''}">
+          <input type="radio" name="payoutMode" value="${value}" data-field="payoutMode" ${isSelected ? 'checked' : ''} ${disabled ? 'disabled' : ''} />
+          <div class="payout-option-content">
+            <strong>${esc(label)}${disabled ? ' (ab 3 Spielern)' : ''}</strong>
+            <small class="muted">${esc(PAYOUT_MODE_HINTS[value] || '')}</small>
+          </div>
+        </label>`;
     })
     .join('');
   return `
@@ -401,8 +408,9 @@ function moneyCard(fields, playerCount) {
           <button type="button" class="stepper-btn" data-action="stake-inc" aria-label="Einsatz erhöhen">+</button>
         </div>
         <label>Ausschüttung</label>
-        <select data-field="payoutMode">${modeOptions}</select>
-        <small class="muted">${esc(PAYOUT_MODE_HINTS[fields.payoutMode] || '')}</small>`
+        <div class="payout-options">
+          ${modeOptions}
+        </div>`
           : ''
       }
     </div>`;
@@ -2177,8 +2185,14 @@ async function onChange(e) {
     '[data-field="moneyEnabled"], [data-field="stake"], [data-field="payoutMode"]',
   );
   if (moneyField && currentRoute().view === 'game' && current.game) {
-    if (moneyField.dataset.field === 'moneyEnabled') current.game.moneyEnabled = moneyField.checked;
-    else if (moneyField.dataset.field === 'stake') current.game.stake = Math.max(0, toFiniteNumber(moneyField.value));
+    if (moneyField.dataset.field === 'moneyEnabled') {
+      current.game.moneyEnabled = moneyField.checked;
+      // Wenn Geldspiel aktiviert wird: stake & payoutMode mit Defaults initialisieren
+      if (moneyField.checked) {
+        if (!Number.isFinite(current.game.stake)) current.game.stake = 10;
+        if (!current.game.payoutMode) current.game.payoutMode = 'winner-takes-all';
+      }
+    } else if (moneyField.dataset.field === 'stake') current.game.stake = Math.max(0, toFiniteNumber(moneyField.value));
     else if (moneyField.dataset.field === 'payoutMode') current.game.payoutMode = moneyField.value;
     saveCurrent();
     return;
