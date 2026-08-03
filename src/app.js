@@ -663,8 +663,10 @@ async function renderProfileList() {
         <button class="btn-primary" data-action="add-profile" style="flex:0 0 auto">Anlegen</button>
       </div>
     </div>
-    <button class="btn-ghost" data-action="stats" style="width:100%">🏆 Bestenliste</button>
-    <button class="btn-ghost" data-action="admin" style="width:100%">🔧 Verwaltung</button>
+    <div class="btn-row">
+      <button class="btn-ghost" data-action="stats">🏆 Bestenliste</button>
+      <button class="btn-ghost" data-action="admin">🔧 Verwaltung</button>
+    </div>
   `;
 }
 
