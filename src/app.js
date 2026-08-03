@@ -57,6 +57,10 @@ const PAYPAL_URL = 'https://paypal.me/Thommyguun';
 // Die Adresse steht dadurch (anders als beim Spendenlink oben) im HTML.
 const FEEDBACK_MAILTO = `mailto:thomas-kellner@web.de?subject=${encodeURIComponent('Rauf Runter – Feedback')}`;
 
+// Startseite zeigt anfangs nur die letzten N Spiele (Spenden-/Feedback-Buttons
+// unten sollen bei vielen Spielen nicht erst nach langem Scrollen kommen).
+const HOME_PAGE_SIZE = 5;
+
 // Flüchtiger UI-Zustand (nicht persistiert).
 const ui = {
   draft: null,        // Entwurf im "Neues Spiel"-Formular
@@ -64,6 +68,7 @@ const ui = {
   tableSort: 'seat',  // Punktestand-Sortierung: 'seat' (Sitzreihe) | 'rank' (Punkte)
   tableTranspose: false, // Achsen tauschen: false = Spieler-Zeilen, true = Runden-Zeilen
   lottery: null, // { profiles, winner } während der Geber-Auslosung beim Anlegen (#/new)
+  homeVisibleCount: HOME_PAGE_SIZE, // wie viele Spiele auf der Startseite sichtbar sind
   pickerQuery: {}, // Sucheingabe je Combobox (Schlüssel = data-i)
   adminUnlocked: false, // Passwort im Admin-Bereich eingegeben (nur für diese Sitzung)
   admin: null, // { games, mergeFrom, mergeTo } im Admin-Bereich
@@ -228,8 +233,11 @@ async function renderHome() {
   }
   if (currentRoute().view !== 'home') return; // inzwischen weggenavigiert
 
+  const visible = games.slice(0, ui.homeVisibleCount);
+  const remaining = games.length - visible.length;
+
   const items = games.length
-    ? games
+    ? visible
         .map((g) => {
           const done = g.rounds.filter((r) => r.done).length;
           const total = g.rounds.length;
@@ -257,6 +265,13 @@ async function renderHome() {
       <button class="icon-btn btn-ghost" data-action="profiles" title="Spielerprofile">👥</button>
     </div>
     ${items}
+    ${
+      remaining > 0
+        ? `<button class="btn-ghost" data-action="show-more-games" style="width:100%;margin-bottom:14px">+ ${remaining} ${
+            remaining === 1 ? 'weiteres Spiel' : 'weitere Spiele'
+          } anzeigen</button>`
+        : ''
+    }
     <div class="card center" style="border-style:dashed">
       <button class="btn-primary" data-action="new" style="width:100%">+ Neues Spiel</button>
     </div>
@@ -993,12 +1008,14 @@ function scrollTableToLatest() {
   if (wrap) wrap.scrollLeft = wrap.scrollWidth;
 }
 
+const RANK_MEDALS = { 1: '🥇', 2: '🥈', 3: '🥉' };
+
 /**
  * Avatar-Leiste ganz oben in der Zuschaueransicht — der einzige Ort, an dem
  * alle Spieler mit Profilbild dauerhaft sichtbar sind, auch nach der letzten
  * Runde (wenn die Karte „Aktuelle Runde" schon verschwunden ist). Vor der
  * ersten fertigen Runde in Sitzreihenfolge ohne Platz/Punkte, sonst nach
- * Punktestand sortiert mit Platzierung.
+ * Punktestand sortiert mit Platzierung (Top 3 als Medaille).
  */
 function playerStrip(game) {
   const doneRounds = game.rounds.filter((r) => r.done);
@@ -1020,7 +1037,7 @@ function playerStrip(game) {
   const items = ranking
     .map((r) => {
       const p = byId[r.playerId];
-      const place = r.rank === 1 ? '🥇 ' : `${r.rank}. `;
+      const place = `${RANK_MEDALS[r.rank] || `${r.rank}.`} `;
       return `
         <div class="player-strip-item">
           ${avatarHtml(profileOf(p), 52)}
@@ -1103,11 +1120,11 @@ function currentRoundCard(game) {
   return `
     <div class="card">
       <h2 style="margin:0">Aktuelle Runde</h2>
-      <p class="dealer-line">${avatarNameHtml(profileOf(dealer), dealer.name)} gibt ${cc} ${
+      <p class="dealer-line">${avatarNameHtml(profileOf(dealer), dealer.name)}<span>gibt ${cc} ${
     cc === 1 ? 'Karte' : 'Karten'
   } 🃏${
     trump ? ` · <span class="trump"><span class="dot dot-${trump}"></span>${trump}</span>` : ''
-  }</p>
+  }</span></p>
       <h3 style="margin-top:16px">Ansagen</h3>
       ${bidRows}
       ${bidSummary}
@@ -1622,6 +1639,10 @@ async function onClick(e) {
     case 'new':
       resetDraft();
       navigate('/new');
+      break;
+    case 'show-more-games':
+      ui.homeVisibleCount += HOME_PAGE_SIZE;
+      renderHome();
       break;
     case 'open':
       ui.activeRound = null;

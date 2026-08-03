@@ -2,7 +2,7 @@
 // Spieldaten laufen über Firestore (eigener Offline-Cache); dieser SW cacht
 // nur die statischen App-Dateien, damit die Oberfläche offline lädt.
 // Bei jeder Änderung an den Dateien die VERSION erhöhen → alter Cache wird verworfen.
-const VERSION = 'v9';
+const VERSION = 'v10';
 const CACHE = `raufrunter-${VERSION}`;
 
 const SHELL = [
@@ -25,6 +25,7 @@ const SHELL = [
   './src/charts.js',
   './src/wheel.js',
   './src/commentary.js',
+  './assets/icon.svg',
   './assets/icon-192.png',
   './assets/icon-512.png',
   './assets/icon-maskable-512.png',

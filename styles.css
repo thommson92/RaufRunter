@@ -313,16 +313,20 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 12px 0 
 /* ---- Zuschauer: Spielerleiste (Avatare, Platzierung, Punktestand) ---- */
 .player-strip { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px 12px; }
 .player-strip-item {
-  display: flex; flex-direction: column; align-items: center; gap: 4px; width: 76px;
+  display: flex; flex-direction: column; align-items: center; gap: 4px; width: 84px;
 }
 .player-strip-name {
   font-size: 0.8rem; font-weight: 600; max-width: 100%;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-align: center; overflow-wrap: break-word;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .player-strip-score { font-size: 0.85rem; font-weight: 700; }
 
 /* ---- Zuschauer: Geber-Zeile in „Aktuelle Runde" ---- */
-.dealer-line { margin: 8px 0 0; }
+/* flex statt normalem Textfluss: .avatar-name (inline-flex) hat als Flex-Box
+   keine echte Baseline und würde sich in einem <p> gegenüber dem restlichen
+   Text nach unten verschieben ("Tommi" höher als "gibt 2 Karten"). */
+.dealer-line { margin: 8px 0 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; }
 
 /* ---- Zuschauer: Live-Status der aktuellen Runde ---- */
 .live-row {
