@@ -122,6 +122,7 @@ Smartphone nutzen. → **Mobile-first.**
 | 18 | Reihenfolge der Chart-Farbpalette? | Von der `dataviz`-Skill-Standardpalette übernommen, aber umsortiert: die alte Reihenfolge hatte Aqua (Slot 2) und Grün (Slot 4) beide sichtbar ab 5 Spielern und schlägt beim Normalsicht-Floor fehl. Neue Reihenfolge (`styles.css` `:root`) besteht `validate_palette.js` vollständig; Grün rutscht auf Slot 6. |
 | 19 | Maskable Icon für Android? | Eigenes `assets/icon-maskable.svg`/`-512.png`: randlose Variante mit Motiv auf ~62 % verkleinert, damit es innerhalb der Safe-Zone (mittlerer 80 %-Kreis) bleibt, auch bei aggressiverem Launcher-Zuschnitt als von der Spezifikation gefordert. |
 | 20 | KI-generierte Rundenkommentare statt regelbasiert? | **Vorerst nicht** — stattdessen mehr Themenvielfalt im bestehenden regelbasierten Generator (M15). Für später festgehaltene Architektur, falls doch gewünscht: Das Projekt hat aktuell **keinen eigenen Server** (Client spricht direkt mit Firestore); ein LLM-API-Key darf aber nie im Client-Bundle landen (anders als der öffentliche Firebase-Web-Key, dessen Schutz über Firestore-Rules läuft). Sicherer Weg: eine **Firebase Cloud Function** als Proxy, getriggert bei Rundenabschluss, bekommt nur die strukturierten Fakten aus `roundEvents()` (keine Freitext-Spielernamen direkt im Prompt, wegen Prompt-Injection), ruft die LLM-API mit serverseitigem Key auf und schreibt das Ergebnis einmal pro Runde ins Rundendokument (kein Call pro Render). Empfehlung, falls umgesetzt: **Hybrid** — der bestehende regelbasierte Text bleibt die Quelle der Fakten und der Offline-/Kostenlos-Fallback; die KI würde ihn höchstens sprachlich variieren, nicht neue Fakten erfinden. Ausgabe weiterhin über `esc()` einbetten (kein `innerHTML` von KI-Text), sonst XSS-Risiko über eine manipulierte Antwort. |
+| 21 | Wie soll der Geldtopf ausgeschüttet werden? | **Konfigurierbar je Spiel**, kein einzelnes festes Schema — variiert in der Praxis je nach Runde/Spieleranzahl. Vier Modi: „Sieger bekommt alles", „Zweiter bekommt Einsatz zurück" (Rest an Sieger), „Dritter Einsatz zurück, Zweiter doppelten Einsatz" (Rest an Sieger), sowie „Manuelle Eingabe" für alles, was nicht ins Schema passt. Die drei Preset-Modi zahlen den betroffenen Rängen ein festes Vielfaches des Einsatzes, der Rest geht **immer gesammelt an Rang 1** — das behandelt Gleichstände ohne Sonderfall: teilen sich z. B. zwei Spieler Rang 1, existiert kein Rang 2, die dafür vorgesehene Auszahlung fließt dann einfach nicht ab und bleibt Teil des Rests für Rang 1 (siehe `engine.moneyPayouts`). |
 
 ---
 
@@ -156,6 +157,10 @@ games/<gameId> = {
   id, name, maxCards, currentRound,
   upOnly,                             // bool, default false (nur 1→max statt 1→max→1?)
   restrictLastBid,                    // bool, default true (verbotene Ansage aktiv?)
+  moneyEnabled,                       // bool, default false (wird um Geld gespielt?)
+  stake,                              // number, € je Spieler fürs ganze Spiel (Pot = stake × Spieleranzahl)
+  payoutMode,                         // 'winner-takes-all' | 'runner-up-refund' | 'podium-cascade' | 'manual'
+  manualPayouts,                      // { [playerId]: number } Netto-Gewinn/Verlust, nur bei payoutMode 'manual'
   createdAt, updatedAt,
   players: [ { id, profileId, name, seatOrder } ],
   rounds:  [ {
@@ -249,6 +254,12 @@ docs/SPEZIFIKATION.md    dieses Dokument
   Nullansagen, Führungswechsel, Kletterer/Faller in der Platzierung, laufende Serien,
   Geber-Falle-Ausgang, Ansage-Tendenz, krasse Fehlschätzungen ≥2 Stiche — Grundlage für den
   Rundenkommentar, siehe `src/commentary.js`)
+- **Geldeinsatz & Ausschüttung (M17):** `moneyPayouts(game)` — `null`, wenn `moneyEnabled`
+  falsy, sonst je Spieler `{playerId, name, rank, net}` (Netto-Gewinn/Verlust in €). Nutzt
+  `standings()` für die Rangliste. Die drei Preset-Modi (`winner-takes-all`/
+  `runner-up-refund`/`podium-cascade`) zahlen festgelegten Rängen ein Vielfaches des Einsatzes
+  zurück, der nicht vergebene Rest geht gesammelt an Rang 1 (bei Gleichstand gesplittet) —
+  behandelt geteilte Ränge ohne Sonderfall. `manual` reicht `game.manualPayouts` durch.
 
 ### Charts (`src/charts.js`)
 DOM-Bausteine (kein Chart-Framework) für die Zuschaueransicht: `assignSeriesColors(players)`
@@ -322,6 +333,7 @@ Ansicht"-Button mehr, das leistet ihr Zurück-Pfeil bereits).
 | **M14** | **Kleine Verbesserungen aus echtem Gebrauch**: Statusleiste im installierten iOS-PWA-Modus rutschte beim Scrollen unter Uhrzeit/Akku (`.topbar` klebte an `top: 0` statt an `env(safe-area-inset-top)` — nur im Standalone-Modus sichtbar, da Safari selbst kein „black-translucent"-Overlay hat); Kartenzahl-Eingabe im „Neues Spiel"-Formular durch großen +/− Stepper ersetzt (das native Zahlenfeld war auf dem Smartphone kaum treffbar); Feedback-Link (`mailto:`) neben dem Spendenlink auf der Startseite. | ✅ fertig |
 | **M15** | **Rundenkommentar: mehr Themenvielfalt** (siehe Entscheidung #20 für die zurückgestellte KI-Variante). Neue Themen neben Held/Bösewicht/Nullansage/Führungswechsel/Kletterer: laufende Serien (`currentStreaks`), Geber-Falle gemeistert/gescheitert je Einzelrunde (`dealerOutcomeForRound`), auffällige Ansage-Tendenz (`biddingBias`), frecher Spruch bei krassem Fehlgriff, größter Faller als Kehrseite des Kletterers. Auswahl der zwei Highlights pro Runde nicht mehr fest priorisiert, sondern deterministisch gemischt (`shuffleKey`), damit sich der Kommentar übers Spiel hinweg nicht strukturell wiederholt. | ✅ fertig |
 | **M16** | **Feinschliff aus M13/M14-Feedback**: Favicon war nur eine 192px-PNG ohne `sizes` — jetzt zusätzlich `assets/icon.svg` als primärer (skalierbar scharfer) Favicon-Link. Startseite zeigt anfangs nur die letzten 5 Spiele + „weitere anzeigen"-Button, damit Spenden-/Feedback-Buttons unten bei vielen Spielen nicht erst nach langem Scrollen erreichbar sind. Spielerleiste (M13): lange Namen wurden bei fester Breite mit `…` abgeschnitten statt umzubrechen — jetzt bis zu zwei Zeilen; Silber/Bronze-Medaillen (🥈/🥉) für Platz 2/3, vorher nur Gold für Platz 1. Geber-Zeile (M13): Name und Folgetext standen auf unterschiedlicher Höhe, weil `.avatar-name` (inline-flex) im normalen Textfluss eines `<p>` keine echte Baseline hat — Zeile ist jetzt selbst ein Flex-Container. | ✅ fertig |
+| **M17** | **Geldeinsatz & Ausschüttung**: neue „💰 Geld"-Karte beim Anlegen eines Spiels UND jederzeit nachträglich in der Schreiber-Ansicht editierbar (auch für längst abgeschlossene Spiele) — ob um Geld gespielt wird, Einsatz je Spieler, Ausschüttungsmodus (Entscheidung #21). Neue Engine-Funktion `moneyPayouts(game)` berechnet nach der letzten Runde den Netto-Gewinn/Verlust je Spieler; neue „💰 Auszahlung"-Karte zeigt das Ergebnis in Schreiber- **und** Zuschauer-Ansicht (grün/rot wie die Punktestand-Zellen). Im manuellen Modus trägt der Schreiber die Beträge direkt in der Karte ein, die Zuschauer-Ansicht zeigt sie read-only bzw. „noch nicht eingetragen". | ✅ fertig |
 
 ### Status-Notiz (M3/M4 verifiziert)
 - Smoke-Test via Chrome-headless + DevTools-Protokoll: Startseite/`listGames` lädt,
