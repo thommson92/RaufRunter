@@ -552,3 +552,74 @@ tbody tr:nth-child(odd) td.sticky-right { background: #243044; }
 .bar-fill.bar-bid { background: var(--series-1); }
 .bar-fill.bar-trick { background: var(--series-2); }
 .bar-value { font-size: 0.75rem; font-weight: 700; color: var(--bg); }
+
+/* ---- Geldverteilung: kompakte Chip-Buttons statt natives Select ---- */
+.payout-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.payout-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 0.88rem;
+  transition: all 0.15s ease;
+}
+
+.payout-chip:hover:not(.disabled) {
+  border-color: var(--primary);
+  background: rgba(56, 189, 248, 0.08);
+}
+
+.payout-chip.selected {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-ink);
+  font-weight: 600;
+}
+
+.payout-chip.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.payout-chip input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+/* ---- Profil: Geld-Bilanz-Karte ---- */
+.money-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.money-stat {
+  background: var(--surface-2);
+  border-radius: 10px;
+  padding: 10px 12px;
+  text-align: center;
+}
+.money-stat-label { font-size: 0.75rem; color: var(--muted); }
+.money-stat-value { font-weight: 700; font-size: 1.05rem; margin-top: 4px; }
+
+/* ---- Feedback/Spenden Buttons: Vertikal stapeln ---- */
+.btn-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.btn-row a,
+.btn-row button {
+  width: 100%;
+}

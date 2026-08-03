@@ -11,6 +11,7 @@ import {
   rotateToStart,
   standings,
   moneyPayouts,
+  profileMoneyStats,
   rankProgression,
   bidTrickTotals,
   accuracyStats,
@@ -723,4 +724,67 @@ test('moneyPayouts: manual reicht eingetragene Werte durch, fehlende ⇒ null', 
   assert.equal(byId.b.net, -4);
   assert.equal(byId.c.net, null);
   assert.equal(byId.d.net, null);
+});
+
+// ---------- profileMoneyStats (Geld-Bilanz je Profil über mehrere Spiele) ----------
+
+/** fourRankGame-Spieler mit profileId versehen, damit gamesUsingProfile/profileMoneyStats greifen. */
+function withProfileIds(game, mapping) {
+  return {
+    ...game,
+    players: game.players.map((p) => ({ ...p, profileId: mapping[p.id] ?? null })),
+  };
+}
+
+test('profileMoneyStats: summiert Einsatz & Netto über mehrere Spiele desselben Profils', () => {
+  const profileMap = { a: 'profile-anna', b: 'profile-ben', c: 'profile-cara', d: 'profile-dirk' };
+  const game1 = withProfileIds(
+    fourRankGame({ moneyEnabled: true, stake: 5, payoutMode: 'winner-takes-all' }),
+    profileMap,
+  );
+  const game2 = withProfileIds(
+    fourRankGame({ moneyEnabled: true, stake: 10, payoutMode: 'winner-takes-all' }),
+    profileMap,
+  );
+  const stats = profileMoneyStats([game1, game2], 'profile-anna');
+  assert.equal(stats.gamesPlayed, 2);
+  assert.equal(stats.totalStake, 15); // 5 + 10
+  assert.equal(stats.totalNet, 45); // 15 (Sieg bei 5€ Einsatz) + 30 (Sieg bei 10€ Einsatz)
+});
+
+test('profileMoneyStats: Spiele ohne Geld oder ohne das Profil zählen nicht mit', () => {
+  const profileMap = { a: 'profile-anna', b: 'profile-ben', c: 'profile-cara', d: 'profile-dirk' };
+  const noMoneyGame = withProfileIds(fourRankGame({ moneyEnabled: false }), profileMap);
+  const otherProfilesGame = withProfileIds(
+    fourRankGame({ moneyEnabled: true, stake: 5, payoutMode: 'winner-takes-all' }),
+    { a: 'someone-else', b: 'profile-ben', c: 'profile-cara', d: 'profile-dirk' },
+  );
+  const stats = profileMoneyStats([noMoneyGame, otherProfilesGame], 'profile-anna');
+  assert.equal(stats.gamesPlayed, 0);
+  assert.equal(stats.totalStake, 0);
+  assert.equal(stats.totalNet, 0);
+});
+
+test('profileMoneyStats: unfertiges Spiel zählt nicht mit', () => {
+  const profileMap = { a: 'profile-anna', b: 'profile-ben', c: 'profile-cara', d: 'profile-dirk' };
+  const game = withProfileIds(
+    fourRankGame({ moneyEnabled: true, stake: 5, payoutMode: 'winner-takes-all' }),
+    profileMap,
+  );
+  game.rounds[0].done = false;
+  const stats = profileMoneyStats([game], 'profile-anna');
+  assert.equal(stats.gamesPlayed, 0);
+});
+
+test('profileMoneyStats: manual-Modus ohne eingetragenen Betrag zählt nicht mit', () => {
+  const profileMap = { a: 'profile-anna', b: 'profile-ben', c: 'profile-cara', d: 'profile-dirk' };
+  const game = withProfileIds(
+    fourRankGame({ moneyEnabled: true, payoutMode: 'manual', manualPayouts: { b: -4 } }),
+    profileMap,
+  );
+  const statsAnna = profileMoneyStats([game], 'profile-anna');
+  assert.equal(statsAnna.gamesPlayed, 0); // kein Betrag für a eingetragen
+  const statsBen = profileMoneyStats([game], 'profile-ben');
+  assert.equal(statsBen.gamesPlayed, 1);
+  assert.equal(statsBen.totalNet, -4);
 });
