@@ -17,6 +17,9 @@ import {
   extremeRounds,
   trumpCounts,
   dealerMalusStats,
+  dealerOutcomeForRound,
+  currentStreaks,
+  biddingBias,
   roundEvents,
   tricksCheck,
   randomTrump,
@@ -327,6 +330,91 @@ test('dealerMalusStats: dealerRounds = neutral + malusCorrect + malusWrong', () 
   }
 });
 
+test('dealerOutcomeForRound: liefert dieselbe Bewertung wie dealerMalusStats für die einzelne Runde', () => {
+  const players = [
+    { id: 'a', name: 'Anna', seatOrder: 0 },
+    { id: 'b', name: 'Ben', seatOrder: 1 },
+    { id: 'c', name: 'Cara', seatOrder: 2 },
+  ];
+  const game = {
+    restrictLastBid: true,
+    players,
+    rounds: [
+      { index: 0, cardCount: 3, done: true, bids: { a: 2, b: 1, c: 1 }, tricks: { a: 2, b: 1, c: 0 } },
+      { index: 1, cardCount: 2, done: true, bids: { a: 0, b: 0, c: 1 }, tricks: { a: 0, b: 1, c: 1 } },
+      { index: 2, cardCount: 1, done: true, bids: { a: 1, b: 1, c: 0 }, tricks: { a: 1, b: 0, c: 0 } },
+    ],
+  };
+  assert.deepEqual(dealerOutcomeForRound(game, 0), { dealerId: 'a', dealerName: 'Anna', bound: true, correct: true });
+  // Runde 2: kein echter Malus für Geber c (verbotener Wert außerhalb 0..1).
+  assert.deepEqual(dealerOutcomeForRound(game, 2), { dealerId: 'c', dealerName: 'Cara', bound: false, correct: true });
+});
+
+test('dealerOutcomeForRound: nicht existierende/offene Runde ⇒ null', () => {
+  const game = {
+    players: [{ id: 'a', name: 'Anna', seatOrder: 0 }],
+    rounds: [{ index: 0, cardCount: 1, done: false, bids: {}, tricks: {} }],
+  };
+  assert.equal(dealerOutcomeForRound(game, 0), null);
+  assert.equal(dealerOutcomeForRound(game, 5), null);
+});
+
+test('currentStreaks: läuft weiter bei gleichem Ausgang, bricht bei Wechsel', () => {
+  const players = [
+    { id: 'a', name: 'Anna', seatOrder: 0 },
+    { id: 'b', name: 'Ben', seatOrder: 1 },
+  ];
+  const game = {
+    players,
+    rounds: [
+      { index: 0, cardCount: 1, done: true, bids: { a: 1, b: 0 }, tricks: { a: 1, b: 1 } }, // a richtig, b falsch
+      { index: 1, cardCount: 2, done: true, bids: { a: 1, b: 0 }, tricks: { a: 1, b: 0 } }, // a richtig, b richtig
+      { index: 2, cardCount: 1, done: true, bids: { a: 0, b: 0 }, tricks: { a: 1, b: 0 } }, // a falsch, b richtig
+    ],
+  };
+  assert.deepEqual(currentStreaks(game, 1), {
+    a: { type: 'correct', length: 2 },
+    b: { type: 'correct', length: 1 }, // Serie von Runde 0 (falsch) gebrochen, neu gestartet
+  });
+  assert.deepEqual(currentStreaks(game, 2), {
+    a: { type: 'wrong', length: 1 },
+    b: { type: 'correct', length: 2 },
+  });
+});
+
+test('currentStreaks: unbeteiligte/offene Runden werden übersprungen, nicht als Bruch gewertet', () => {
+  const players = [{ id: 'a', name: 'Anna', seatOrder: 0 }];
+  const game = {
+    players,
+    rounds: [
+      { index: 0, cardCount: 1, done: true, bids: { a: 1 }, tricks: { a: 1 } },
+      { index: 1, cardCount: 2, done: false, bids: {}, tricks: {} }, // noch offen
+      { index: 2, cardCount: 1, done: true, bids: { a: 0 }, tricks: { a: 0 } },
+    ],
+  };
+  assert.deepEqual(currentStreaks(game, 2), { a: { type: 'correct', length: 2 } });
+});
+
+test('biddingBias: positiver Schnitt bei konsequent mehr Stichen als angesagt', () => {
+  const players = [{ id: 'a', name: 'Anna', seatOrder: 0 }];
+  const game = {
+    players,
+    rounds: [
+      { index: 0, cardCount: 3, done: true, bids: { a: 0 }, tricks: { a: 2 } },
+      { index: 1, cardCount: 3, done: true, bids: { a: 1 }, tricks: { a: 2 } },
+      { index: 2, cardCount: 3, done: true, bids: { a: 0 }, tricks: { a: 1 } },
+    ],
+  };
+  const bias = biddingBias(game, 2);
+  assert.equal(bias.a.attempts, 3);
+  assert.equal(bias.a.avgDiff, (2 + 1 + 1) / 3);
+});
+
+test('biddingBias: ohne gespielte Runde ⇒ avgDiff 0, attempts 0', () => {
+  const game = { players: [{ id: 'a', name: 'Anna', seatOrder: 0 }], rounds: [] };
+  assert.deepEqual(biddingBias(game, 0).a, { avgDiff: 0, attempts: 0 });
+});
+
 test('roundEvents: Fakten der ersten Runde (kein Vorher-Rang, keine Kletterer)', () => {
   const players = [
     { id: 'a', name: 'Anna', seatOrder: 0 },
@@ -351,6 +439,30 @@ test('roundEvents: Fakten der ersten Runde (kein Vorher-Rang, keine Kletterer)',
   assert.deepEqual(e0.leaders.map((l) => l.id), ['a']);
   assert.equal(e0.allCorrect, false);
   assert.equal(e0.allWrong, false);
+
+  // Zusatzfelder fürs Rundenkommentar sind mitverdrahtet (Details dort/oben getestet).
+  assert.deepEqual(e0.streaks.a, { type: 'correct', length: 1 });
+  assert.deepEqual(e0.streaks.c, { type: 'wrong', length: 1 });
+  assert.deepEqual(e0.dealerOutcome, { dealerId: 'a', dealerName: 'Anna', bound: true, correct: true });
+  assert.equal(e0.bias.c.avgDiff, 1); // c: 1 Stich gemacht, 0 angesagt
+  assert.deepEqual(e0.wildMisses, []); // größte Abweichung ist 1, unter der wildMiss-Schwelle
+});
+
+test('roundEvents: wildMisses ab Abweichung 2, Nullansagen ausgenommen', () => {
+  const players = [
+    { id: 'a', name: 'Anna', seatOrder: 0 },
+    { id: 'b', name: 'Ben', seatOrder: 1 },
+  ];
+  const game = {
+    players,
+    rounds: [
+      // b: 0 angesagt, 3 gemacht -> Abweichung 3, aber Nullansage -> keine wildMiss.
+      // a: 4 angesagt, 1 gemacht -> Abweichung 3 -> wildMiss.
+      { index: 0, cardCount: 4, done: true, bids: { a: 4, b: 0 }, tricks: { a: 1, b: 3 } },
+    ],
+  };
+  const e0 = roundEvents(game, 0);
+  assert.deepEqual(e0.wildMisses.map((m) => m.playerId), ['a']);
 });
 
 test('roundEvents: Führungswechsel & Kletterer werden erkannt', () => {

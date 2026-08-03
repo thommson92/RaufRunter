@@ -59,7 +59,12 @@ p { color: var(--muted); }
   gap: 10px;
   padding: 14px 0;
   position: sticky;
-  top: 0;
+  /* Nicht 0, sonst rutscht die Leiste im installierten iOS-PWA-Modus
+     (viewport-fit=cover + black-translucent Statusleiste) beim Scrollen unter
+     Uhrzeit/Akku, weil "sticky" sich sonst am physischen Viewport-Rand
+     verhakt statt am unteren Rand der Statusleiste. In Safari selbst (eigene
+     Browser-Chrome über der Seite) ist safe-area-inset-top ohnehin 0. */
+  top: env(safe-area-inset-top);
   background: var(--bg);
   z-index: 5;
 }
@@ -117,6 +122,23 @@ input, select {
   min-height: 44px;
 }
 label { display: block; font-size: 0.85rem; color: var(--muted); margin: 12px 0 6px; }
+
+/* Zahl-Eingabe mit +/- Tasten (z.B. Kartenzahl) — auf dem Smartphone lässt
+   sich das native Spinner-Feld schlecht treffen, die Ziffer ist dort kaum
+   antippbar; +/- Tasten sind ein deutlich größeres, verlässlicheres Ziel. */
+.stepper { display: flex; align-items: stretch; gap: 8px; }
+.stepper-btn {
+  flex: 0 0 auto; width: 44px; min-height: 44px; padding: 0;
+  display: grid; place-items: center; font-size: 1.3rem; line-height: 1;
+}
+.stepper-value {
+  flex: 1; min-width: 0; text-align: center;
+  -moz-appearance: textfield;
+}
+.stepper-value::-webkit-inner-spin-button,
+.stepper-value::-webkit-outer-spin-button {
+  -webkit-appearance: none; margin: 0;
+}
 .check-row { display: flex; align-items: center; gap: 10px; margin: 16px 0 4px; cursor: pointer; }
 .check-row input[type="checkbox"] {
   width: 22px; height: 22px; min-height: 0; flex: 0 0 auto; accent-color: var(--primary);
@@ -125,6 +147,15 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 12px 0 
 
 .muted { color: var(--muted); }
 .center { text-align: center; }
+.section-label {
+  margin: 18px 0 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+h2 + .section-label { margin-top: 12px; }
 .row { display: flex; align-items: center; gap: 10px; }
 .spread { justify-content: space-between; }
 .pill {
@@ -287,6 +318,43 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 12px 0 
 
 .entry-player { font-weight: 600; margin: 14px 0 2px; }
 .entry-sub { font-size: 0.8rem; color: var(--muted); }
+
+/* ---- Zuschauer: Spielerleiste (Avatare, Platzierung, Punktestand) ---- */
+/* Grid statt Flex+space-evenly: bei wenigen Spielern (2-4) auf einer breiten
+   Karte sonst ein schmales Grüppchen in der Mitte mit viel totem Platz
+   links/rechts. Mit auto-fit teilen sich alle Zeilen dieselben Spalten —
+   anders als bei flex-wrap+space-evenly richtet sich so eine unvollständige
+   letzte Zeile (z.B. 3 von 4 Spalten belegt) nicht neu/breiter aus, sondern
+   bleibt an denselben Spaltenpositionen wie die Zeile(n) darüber. */
+.player-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  justify-items: center;
+  gap: 14px 12px;
+}
+.player-strip-item {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; width: 92px;
+}
+/* Rang-Emoji und Name als eigene Flex-Kinder: sonst kann der Zeilenumbruch
+   (bei knappem Platz + langem Namen) die Medaille vom Namen trennen und auf
+   eine eigene Zeile werfen ("🥇" allein oben, "Schuulsen" darunter). So bricht
+   höchstens der Name selbst um, die Medaille bleibt immer auf Zeile 1 fix. */
+.player-strip-name-row {
+  display: flex; align-items: baseline; justify-content: center; gap: 3px; max-width: 100%;
+}
+.player-strip-rank { flex: 0 0 auto; }
+.player-strip-name {
+  font-size: 0.8rem; font-weight: 600; min-width: 0; max-width: 100%;
+  text-align: center; overflow-wrap: break-word;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.player-strip-score { font-size: 0.85rem; font-weight: 700; }
+
+/* ---- Zuschauer: Geber-Zeile in „Aktuelle Runde" ---- */
+/* flex statt normalem Textfluss: .avatar-name (inline-flex) hat als Flex-Box
+   keine echte Baseline und würde sich in einem <p> gegenüber dem restlichen
+   Text nach unten verschieben ("Tommi" höher als "gibt 2 Karten"). */
+.dealer-line { margin: 8px 0 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; }
 
 /* ---- Zuschauer: Live-Status der aktuellen Runde ---- */
 .live-row {

@@ -300,6 +300,155 @@ test('generateRoundCommentary: drei Namen werden ohne Oxford-Komma verbunden', (
   assert.match(text, /übernehmen|liegen/); // Plural-Verb bei drei Spielern
 });
 
+test('generateRoundCommentary: heiße Serie (≥3 richtig in Folge) wird erwähnt', () => {
+  const events = {
+    roundIndex: 5, // isoliert testen: kein Held/Bösewicht/Nullansage/Führung/Kletterer
+    perPlayer: [{ playerId: 'a', name: 'Anna', bid: 1, tricks: 1, score: 11, correct: true }],
+    heroes: [], villains: [], zeroBids: [], leaders: [], leadChanged: false, climbers: [],
+    allCorrect: true, allWrong: false,
+    streaks: { a: { type: 'correct', length: 4 } },
+  };
+  const text = generateRoundCommentary(events);
+  assert.match(text, /Anna/);
+  assert.match(text, /4 Runden/);
+});
+
+test('generateRoundCommentary: kalte Serie (≥3 falsch in Folge) wird erwähnt', () => {
+  const events = {
+    roundIndex: 5,
+    perPlayer: [{ playerId: 'a', name: 'Anna', bid: 1, tricks: 3, score: -8, correct: false }],
+    heroes: [], villains: [], zeroBids: [], leaders: [], leadChanged: false, climbers: [],
+    allCorrect: false, allWrong: true, // Held/Bösewicht bewusst über allWrong ausgeschlossen
+    streaks: { a: { type: 'wrong', length: 3 } },
+  };
+  const text = generateRoundCommentary(events);
+  assert.match(text, /Anna/);
+  assert.match(text, /3 Runden|Fehlgriffe/);
+});
+
+test('generateRoundCommentary: Serie unter STREAK_MIN wird nicht erwähnt', () => {
+  const events = {
+    roundIndex: 5,
+    perPlayer: [{ playerId: 'a', name: 'Anna', bid: 1, tricks: 1, score: 11, correct: true }],
+    heroes: [], villains: [], zeroBids: [], leaders: [], leadChanged: false, climbers: [],
+    allCorrect: true, allWrong: false,
+    streaks: { a: { type: 'correct', length: 2 } }, // unter der Schwelle von 3
+  };
+  const text = generateRoundCommentary(events);
+  assert.doesNotMatch(text, /on fire|heiß|Folge/);
+});
+
+test('generateRoundCommentary: Geber meistert die Ansage-Falle', () => {
+  const events = {
+    roundIndex: 5,
+    perPlayer: [{ playerId: 'a', name: 'Anna', bid: 1, tricks: 1, score: 11, correct: true }],
+    heroes: [], villains: [], zeroBids: [], leaders: [], leadChanged: false, climbers: [],
+    allCorrect: true, allWrong: false,
+    dealerOutcome: { dealerId: 'a', dealerName: 'Anna', bound: true, correct: true },
+  };
+  const text = generateRoundCommentary(events);
+  assert.match(text, /Anna/);
+  assert.match(text, /meistert|cool und trifft genau/);
+  assert.doesNotMatch(text, /muss dran glauben|leidet/); // korrekt gemeistert, nicht gescheitert
+});
+
+test('generateRoundCommentary: Geber scheitert an der Ansage-Falle', () => {
+  const events = {
+    roundIndex: 5,
+    perPlayer: [{ playerId: 'a', name: 'Anna', bid: 1, tricks: 2, score: -8, correct: false }],
+    heroes: [], villains: [], zeroBids: [], leaders: [], leadChanged: false, climbers: [],
+    allCorrect: false, allWrong: true,
+    dealerOutcome: { dealerId: 'a', dealerName: 'Anna', bound: true, correct: false },
+  };
+  const text = generateRoundCommentary(events);
+  assert.match(text, /muss dran glauben|leidet/);
+});
+
+test('generateRoundCommentary: Geber-Falle ohne echte Bindung (bound=false) wird nicht erwähnt', () => {
+  const events = {
+    roundIndex: 5,
+    perPlayer: [{ playerId: 'a', name: 'Anna', bid: 1, tricks: 1, score: 11, correct: true }],
+    heroes: [], villains: [], zeroBids: [], leaders: [], leadChanged: false, climbers: [],
+    allCorrect: true, allWrong: false,
+    dealerOutcome: { dealerId: 'a', dealerName: 'Anna', bound: false, correct: true },
+  };
+  const text = generateRoundCommentary(events);
+  assert.doesNotMatch(text, /Falle/);
+});
+
+test('generateRoundCommentary: auffällige Ansage-Tendenz (Bias) wird genannt, unterhalb der Schwelle nicht', () => {
+  const base = {
+    roundIndex: 5,
+    perPlayer: [{ playerId: 'a', name: 'Anna', bid: 1, tricks: 1, score: 11, correct: true }],
+    heroes: [], villains: [], zeroBids: [], leaders: [], leadChanged: false, climbers: [],
+    allCorrect: true, allWrong: false,
+  };
+  const over = generateRoundCommentary({ ...base, bias: { a: { avgDiff: 1.5, attempts: 4 } } });
+  assert.match(over, /Anna/);
+  assert.match(over, /mehr geholt|höhere Zahl/);
+
+  const under = generateRoundCommentary({ ...base, bias: { a: { avgDiff: -1.5, attempts: 4 } } });
+  assert.match(under, /kleiner planen|weniger geholt/);
+
+  const tooFewAttempts = generateRoundCommentary({ ...base, bias: { a: { avgDiff: 2, attempts: 2 } } });
+  assert.doesNotMatch(tooFewAttempts, /geholt als angesagt|angesagt, als am Ende/);
+});
+
+test('generateRoundCommentary: krasser Fehlgriff (≥2 Stiche daneben) bekommt frechen Kommentar, Nullansagen ausgenommen', () => {
+  const events = {
+    roundIndex: 5,
+    perPlayer: [{ playerId: 'a', name: 'Anna', bid: 4, tricks: 1, score: -7, correct: false }],
+    heroes: [], villains: [], zeroBids: [], leaders: [], leadChanged: false, climbers: [],
+    allCorrect: false, allWrong: true,
+    wildMisses: [{ playerId: 'a', name: 'Anna', bid: 4, tricks: 1 }],
+  };
+  const text = generateRoundCommentary(events);
+  assert.match(text, /Anna/);
+  assert.match(text, /blind angesagt|Regelauffrischung|verschätzt sich gewaltig/);
+});
+
+test('generateRoundCommentary: Faller in der Platzierung wird erwähnt (Kehrseite von Kletterer)', () => {
+  const events = {
+    roundIndex: 5,
+    perPlayer: [{ playerId: 'a', name: 'Anna', bid: 1, tricks: 1, score: 11, correct: true }],
+    heroes: [], villains: [], zeroBids: [], leaders: [], leadChanged: false,
+    allCorrect: true, allWrong: false,
+    climbers: [{ playerId: 'a', name: 'Anna', prevRank: 1, rank: 3 }],
+  };
+  const text = generateRoundCommentary(events);
+  assert.match(text, /Anna/);
+  assert.match(text, /Platz 1.*Platz 3|rutscht/);
+});
+
+test('generateRoundCommentary: Themenwahl variiert über verschiedene Runden hinweg (kein starres Fest-Ranking)', () => {
+  // Fünf gleichzeitig zutreffende Themen über viele Rundennummern hinweg —
+  // welche zwei es in den Text schaffen, darf nicht immer dieselbe Kombination sein.
+  const buildEvents = (roundIndex) => ({
+    roundIndex,
+    perPlayer: [
+      { playerId: 'a', name: 'Anna', bid: 2, tricks: 2, score: 12, correct: true },
+      { playerId: 'b', name: 'Ben', bid: 3, tricks: 0, score: -7, correct: false },
+    ],
+    heroes: [{ playerId: 'a', name: 'Anna', bid: 2, tricks: 2, score: 12, correct: true }],
+    villains: [{ playerId: 'b', name: 'Ben', bid: 3, tricks: 0, score: -7 }],
+    zeroBids: [],
+    leaders: [{ id: 'a', name: 'Anna' }],
+    leadChanged: true,
+    climbers: [{ playerId: 'a', name: 'Anna', prevRank: 3, rank: 1 }],
+    allCorrect: false,
+    allWrong: false,
+    streaks: { a: { type: 'correct', length: 3 } },
+    dealerOutcome: { dealerId: 'b', dealerName: 'Ben', bound: true, correct: false },
+    bias: {},
+    wildMisses: [],
+  });
+  const outcomes = new Set();
+  for (let r = 0; r < 30; r++) {
+    outcomes.add(generateRoundCommentary(buildEvents(r)));
+  }
+  assert.ok(outcomes.size > 1, 'erwartet unterschiedliche Themen-Kombinationen über mehrere Runden');
+});
+
 test('generateRoundCommentary + engine.roundEvents: funktionieren zusammen (Integrationstest)', () => {
   const players = [
     { id: 'a', name: 'Anna', seatOrder: 0 },

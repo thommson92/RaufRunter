@@ -52,6 +52,15 @@ const appEl = document.getElementById('app');
 // E-Mail-Adresse, damit die Adresse nicht im öffentlichen HTML crawlbar ist.
 const PAYPAL_URL = 'https://paypal.me/Thommyguun';
 
+// Feedback-Link auf der Startseite — bewusst als mailto:, damit Rückmeldungen
+// direkt beim Entwickler landen statt über ein eigenes Formular/Backend.
+// Die Adresse steht dadurch (anders als beim Spendenlink oben) im HTML.
+const FEEDBACK_MAILTO = `mailto:thomas-kellner@web.de?subject=${encodeURIComponent('Rauf Runter – Feedback')}`;
+
+// Startseite zeigt anfangs nur die letzten N Spiele (Spenden-/Feedback-Buttons
+// unten sollen bei vielen Spielen nicht erst nach langem Scrollen kommen).
+const HOME_PAGE_SIZE = 5;
+
 // Flüchtiger UI-Zustand (nicht persistiert).
 const ui = {
   draft: null,        // Entwurf im "Neues Spiel"-Formular
@@ -59,6 +68,7 @@ const ui = {
   tableSort: 'seat',  // Punktestand-Sortierung: 'seat' (Sitzreihe) | 'rank' (Punkte)
   tableTranspose: false, // Achsen tauschen: false = Spieler-Zeilen, true = Runden-Zeilen
   lottery: null, // { profiles, winner } während der Geber-Auslosung beim Anlegen (#/new)
+  homeVisibleCount: HOME_PAGE_SIZE, // wie viele Spiele auf der Startseite sichtbar sind
   pickerQuery: {}, // Sucheingabe je Combobox (Schlüssel = data-i)
   adminUnlocked: false, // Passwort im Admin-Bereich eingegeben (nur für diese Sitzung)
   admin: null, // { games, mergeFrom, mergeTo } im Admin-Bereich
@@ -223,8 +233,11 @@ async function renderHome() {
   }
   if (currentRoute().view !== 'home') return; // inzwischen weggenavigiert
 
+  const visible = games.slice(0, ui.homeVisibleCount);
+  const remaining = games.length - visible.length;
+
   const items = games.length
-    ? games
+    ? visible
         .map((g) => {
           const done = g.rounds.filter((r) => r.done).length;
           const total = g.rounds.length;
@@ -252,10 +265,20 @@ async function renderHome() {
       <button class="icon-btn btn-ghost" data-action="profiles" title="Spielerprofile">👥</button>
     </div>
     ${items}
+    ${
+      remaining > 0
+        ? `<button class="btn-ghost" data-action="show-more-games" style="width:100%;margin-bottom:14px">+ ${remaining} ${
+            remaining === 1 ? 'weiteres Spiel' : 'weitere Spiele'
+          } anzeigen</button>`
+        : ''
+    }
     <div class="card center" style="border-style:dashed">
       <button class="btn-primary" data-action="new" style="width:100%">+ Neues Spiel</button>
     </div>
-    <a class="btn-ghost" href="${PAYPAL_URL}" target="_blank" rel="noopener noreferrer" style="width:100%;margin-bottom:14px">☕ Entwickler unterstützen</a>
+    <div class="btn-row" style="margin-bottom:14px">
+      <a class="btn-ghost" href="${PAYPAL_URL}" target="_blank" rel="noopener noreferrer">☕ Entwickler unterstützen</a>
+      <a class="btn-ghost" href="${FEEDBACK_MAILTO}">✉️ Feedback geben</a>
+    </div>
     <p class="center muted" style="font-size:0.8rem">Rauf & Runter – Punkte App · © ${new Date().getFullYear()} Thomas Kellner</p>
   `;
 }
@@ -333,7 +356,15 @@ function renderNew() {
       <label>Name des Spiels</label>
       <input data-field="name" value="${esc(d.name)}" placeholder="z.B. Spieleabend" />
       <label>Bis wie viele Karten? (Höhepunkt)</label>
-      <input data-field="maxCards" type="number" inputmode="numeric" min="1" max="15" value="${d.maxCards}" />
+      <div class="stepper">
+        <button type="button" class="stepper-btn" data-action="maxcards-dec" aria-label="Weniger Karten" ${
+          d.maxCards <= 1 ? 'disabled' : ''
+        }>−</button>
+        <input class="stepper-value" data-field="maxCards" type="number" inputmode="numeric" min="1" max="15" value="${d.maxCards}" />
+        <button type="button" class="stepper-btn" data-action="maxcards-inc" aria-label="Mehr Karten" ${
+          d.maxCards >= 15 ? 'disabled' : ''
+        }>+</button>
+      </div>
       <label class="check-row">
         <input type="checkbox" data-field="playDown" ${d.upOnly ? '' : 'checked'} />
         <span>Nach dem Höhepunkt wieder herunterspielen</span>
@@ -803,7 +834,7 @@ function entryPanel(game) {
     const allTricks = seated.every((p) => round.tricks[p.id] != null);
 
     tricksSection = `
-      <h3 style="margin-top:18px">Gemachte Stiche</h3>
+      <h3 class="section-label">Auswertung</h3>
       ${tRows}
       ${warn}
       <button class="btn-primary" data-action="finish-round" style="width:100%;margin-top:12px"
@@ -814,15 +845,13 @@ function entryPanel(game) {
 
   return `
     <div class="card">
-      <div class="row spread">
-        <h2 style="margin:0">Runde ${ui.activeRound + 1}/${game.rounds.length}</h2>
-        <span class="pill">${cc} ${cc === 1 ? 'Karte' : 'Karten'}</span>
-      </div>
+      <h2 style="margin:0">Runde ${ui.activeRound + 1}/${game.rounds.length}</h2>
       ${
         dealer
-          ? `<p class="muted" style="margin:6px 0 0;font-size:0.85rem">🃏 ${esc(
-              dealer.name,
-            )} gibt${restrict ? ' und sagt zuletzt an' : ''}</p>`
+          ? `<h3 class="section-label">Geber</h3>
+             <p class="dealer-line">${avatarNameHtml(profileOf(dealer), dealer.name)}<span>gibt ${cc} ${
+              cc === 1 ? 'Karte' : 'Karten'
+            } 🃏${restrict ? ' · sagt zuletzt an' : ''}</span></p>`
           : ''
       }
       <div class="row spread" style="margin-top:12px">
@@ -842,7 +871,7 @@ function entryPanel(game) {
           }
         </div>
       </div>
-      <h3 style="margin-top:18px">Ansagen</h3>
+      <h3 class="section-label">Ansagen</h3>
       ${bidRows}
       ${tricksSection}
     </div>`;
@@ -977,6 +1006,50 @@ function scrollTableToLatest() {
   if (wrap) wrap.scrollLeft = wrap.scrollWidth;
 }
 
+const RANK_MEDALS = { 1: '🥇', 2: '🥈', 3: '🥉' };
+
+/**
+ * Avatar-Leiste ganz oben in der Zuschaueransicht — der einzige Ort, an dem
+ * alle Spieler mit Profilbild dauerhaft sichtbar sind, auch nach der letzten
+ * Runde (wenn die Karte „Aktuelle Runde" schon verschwunden ist). Vor der
+ * ersten fertigen Runde in Sitzreihenfolge ohne Platz/Punkte, sonst nach
+ * Punktestand sortiert mit Platzierung (Top 3 als Medaille).
+ */
+function playerStrip(game) {
+  const doneRounds = game.rounds.filter((r) => r.done);
+  if (!doneRounds.length) {
+    const items = seatSorted(game)
+      .map(
+        (p) => `
+        <div class="player-strip-item">
+          ${avatarHtml(profileOf(p), 52)}
+          <span class="player-strip-name">${esc(p.name)}</span>
+        </div>`,
+      )
+      .join('');
+    return `<div class="card player-strip">${items}</div>`;
+  }
+
+  const { byPlayer, ranking } = standings(game);
+  const byId = Object.fromEntries(game.players.map((p) => [p.id, p]));
+  const items = ranking
+    .map((r) => {
+      const p = byId[r.playerId];
+      const place = RANK_MEDALS[r.rank] || `${r.rank}.`;
+      return `
+        <div class="player-strip-item">
+          ${avatarHtml(profileOf(p), 52)}
+          <span class="player-strip-name-row">
+            <span class="player-strip-rank">${place}</span>
+            <span class="player-strip-name">${esc(p.name)}</span>
+          </span>
+          <span class="player-strip-score">${fmtScore(byPlayer[p.id].total)}</span>
+        </div>`;
+    })
+    .join('');
+  return `<div class="card player-strip">${items}</div>`;
+}
+
 /**
  * Live-Status der aktuell laufenden Runde für die Zuschaueransicht: Geber &
  * Kartenzahl, wer bereits angesagt hat (und was), wie viele Stiche noch
@@ -1040,21 +1113,21 @@ function currentRoundCard(game) {
       })
       .join('');
     tricksBlock = `
-      <h3 style="margin-top:16px">Gemachte Stiche</h3>
+      <h3 class="section-label">Auswertung</h3>
       ${trickRows}
       <p class="muted" style="margin:8px 0 0">Bisher gemacht: <strong>${trickSum}</strong> von ${cc}</p>`;
   }
 
   return `
     <div class="card">
-      <div class="row spread">
-        <h2 style="margin:0">Aktuelle Runde</h2>
-        <span class="pill">${cc} ${cc === 1 ? 'Karte' : 'Karten'}</span>
-      </div>
-      <p class="muted" style="margin:6px 0 0;font-size:0.85rem">🃏 ${esc(dealer.name)} gibt${
+      <h2 style="margin:0">Aktuelle Runde</h2>
+      <h3 class="section-label">Geber</h3>
+      <p class="dealer-line">${avatarNameHtml(profileOf(dealer), dealer.name)}<span>gibt ${cc} ${
+    cc === 1 ? 'Karte' : 'Karten'
+  } 🃏${
     trump ? ` · <span class="trump"><span class="dot dot-${trump}"></span>${trump}</span>` : ''
-  }</p>
-      <h3 style="margin-top:16px">Ansagen</h3>
+  }</span></p>
+      <h3 class="section-label">Ansagen</h3>
       ${bidRows}
       ${bidSummary}
       ${tricksBlock}
@@ -1106,6 +1179,7 @@ function renderViewer() {
     <p class="muted progress" style="margin-top:0">Runde ${Math.min(done + 1, game.rounds.length)}/${
     game.rounds.length
   } · nur Ansicht</p>
+    ${playerStrip(game)}
     ${currentRoundCard(game)}
     ${commentaryCard(game)}
     ${standingsTable(game)}
@@ -1568,6 +1642,10 @@ async function onClick(e) {
       resetDraft();
       navigate('/new');
       break;
+    case 'show-more-games':
+      ui.homeVisibleCount += HOME_PAGE_SIZE;
+      renderHome();
+      break;
     case 'open':
       ui.activeRound = null;
       navigate('/game/' + gid);
@@ -1599,6 +1677,16 @@ async function onClick(e) {
     case 'set-axis':
       ui.tableTranspose = v === 'rounds';
       renderActiveView();
+      break;
+
+    case 'maxcards-dec':
+    case 'maxcards-inc':
+      readDraftFromInputs();
+      ui.draft.maxCards = Math.max(
+        1,
+        Math.min(15, ui.draft.maxCards + (action === 'maxcards-inc' ? 1 : -1)),
+      );
+      renderNew();
       break;
 
     case 'add-player':

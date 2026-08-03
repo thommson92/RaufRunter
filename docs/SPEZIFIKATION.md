@@ -121,6 +121,7 @@ Smartphone nutzen. → **Mobile-first.**
 | 17 | Sortierung der Spieleliste (Startseite)? | Nach **`createdAt`** absteigend, nicht `updatedAt` — ein Batch-Write (z.B. beim nachträglichen Zuordnen von Spielerprofilen) setzt `updatedAt` sonst bei vielen Spielen gleichzeitig und macht die Reihenfolge zufällig. |
 | 18 | Reihenfolge der Chart-Farbpalette? | Von der `dataviz`-Skill-Standardpalette übernommen, aber umsortiert: die alte Reihenfolge hatte Aqua (Slot 2) und Grün (Slot 4) beide sichtbar ab 5 Spielern und schlägt beim Normalsicht-Floor fehl. Neue Reihenfolge (`styles.css` `:root`) besteht `validate_palette.js` vollständig; Grün rutscht auf Slot 6. |
 | 19 | Maskable Icon für Android? | Eigenes `assets/icon-maskable.svg`/`-512.png`: randlose Variante mit Motiv auf ~62 % verkleinert, damit es innerhalb der Safe-Zone (mittlerer 80 %-Kreis) bleibt, auch bei aggressiverem Launcher-Zuschnitt als von der Spezifikation gefordert. |
+| 20 | KI-generierte Rundenkommentare statt regelbasiert? | **Vorerst nicht** — stattdessen mehr Themenvielfalt im bestehenden regelbasierten Generator (M15). Für später festgehaltene Architektur, falls doch gewünscht: Das Projekt hat aktuell **keinen eigenen Server** (Client spricht direkt mit Firestore); ein LLM-API-Key darf aber nie im Client-Bundle landen (anders als der öffentliche Firebase-Web-Key, dessen Schutz über Firestore-Rules läuft). Sicherer Weg: eine **Firebase Cloud Function** als Proxy, getriggert bei Rundenabschluss, bekommt nur die strukturierten Fakten aus `roundEvents()` (keine Freitext-Spielernamen direkt im Prompt, wegen Prompt-Injection), ruft die LLM-API mit serverseitigem Key auf und schreibt das Ergebnis einmal pro Runde ins Rundendokument (kein Call pro Render). Empfehlung, falls umgesetzt: **Hybrid** — der bestehende regelbasierte Text bleibt die Quelle der Fakten und der Offline-/Kostenlos-Fallback; die KI würde ihn höchstens sprachlich variieren, nicht neue Fakten erfinden. Ausgabe weiterhin über `esc()` einbetten (kein `innerHTML` von KI-Text), sonst XSS-Risiko über eine manipulierte Antwort. |
 
 ---
 
@@ -233,13 +234,21 @@ docs/SPEZIFIKATION.md    dieses Dokument
 - **Geber-Auslosung (M7):** `rotateToStart(list, startIndex)` — rotiert ein Array (Namen oder
   Spieler) so, dass das Element an `startIndex` künftig an Position 0 steht; Nachbarschaft/
   relative Reihenfolge bleibt erhalten, mutiert nichts.
-- **Malus & Rundenkommentar (M8, Bilanz überarbeitet in M10):** `dealerMalusStats(game)` — Bilanz
-  je Spieler, wie oft er Geber (letzter Ansagender) war, aufgeteilt in `neutral` (Malus griff
-  diese Runde gar nicht wirklich, `forbiddenBid` = null oder `restrictLastBid` aus),
-  `malusCorrect` (Malus griff, trotzdem richtig) und `malusWrong` (Malus griff, falsch gelegen);
-  `dealerRounds = neutral + malusCorrect + malusWrong`. `roundEvents(game, roundIndex)` (strukturierte Fakten einer fertigen
-  Runde: Held/Bösewicht, Nullansagen, Führungswechsel, Kletterer in der Platzierung — Grundlage
-  für den Rundenkommentar, siehe `src/commentary.js`)
+- **Malus & Rundenkommentar (M8, Bilanz überarbeitet in M10, Themenvielfalt in M15):**
+  `dealerMalusStats(game)` — Bilanz je Spieler, wie oft er Geber (letzter Ansagender) war,
+  aufgeteilt in `neutral` (Malus griff diese Runde gar nicht wirklich, `forbiddenBid` = null oder
+  `restrictLastBid` aus), `malusCorrect` (Malus griff, trotzdem richtig) und `malusWrong` (Malus
+  griff, falsch gelegen); `dealerRounds = neutral + malusCorrect + malusWrong`.
+  `dealerOutcomeForRound(game, roundIndex)` — dieselbe Bewertung für eine einzelne Runde (Kern
+  von `dealerMalusStats`, ausgelagert, damit beide sich nicht widersprechen können).
+  `currentStreaks(game, roundIndex)` — je Spieler die **laufende** Serie richtiger/falscher
+  Ansagen bis einschließlich `roundIndex` (nicht die längste je erreichte — dafür weiter
+  `longestCorrectStreak`). `biddingBias(game, roundIndex)` — Ø-Differenz (Stiche − Ansage) je
+  Spieler über die gespielten Runden; positiv = sagt tendenziell zu wenig an, negativ = zu viel.
+  `roundEvents(game, roundIndex)` (strukturierte Fakten einer fertigen Runde: Held/Bösewicht,
+  Nullansagen, Führungswechsel, Kletterer/Faller in der Platzierung, laufende Serien,
+  Geber-Falle-Ausgang, Ansage-Tendenz, krasse Fehlschätzungen ≥2 Stiche — Grundlage für den
+  Rundenkommentar, siehe `src/commentary.js`)
 
 ### Charts (`src/charts.js`)
 DOM-Bausteine (kein Chart-Framework) für die Zuschaueransicht: `assignSeriesColors(players)`
@@ -260,14 +269,26 @@ angelegt (kein Zwischenspeichern eines unvollständigen Spiels).
 ### Kommentar-Generator (`src/commentary.js`)
 `generateRoundCommentary(events)` — regelbasierter „Kommentator"-Text zur zuletzt fertig
 gespielten Runde, aus `engine.roundEvents()` gespeist. **Kein LLM/KI-Aufruf** (bewusste
-Entscheidung: ein echter API-Aufruf bräuchte einen Server-Proxy, um den Schlüssel geheim zu
-halten, und würde Firebase auf den kostenpflichtigen „Blaze"-Tarif zwingen — reine
-Textbausteine sind kostenlos, ohne Backend, sofort nutzbar). Immer eine Eröffnung + **höchstens
-zwei** weitere Highlights (Priorität: Held > Bösewicht > Nullansagen > Führungswechsel > größter
-Aufstieg) — bewusst knapp, statt jedes Ereignis für jeden Spieler auszubuchstabieren. Mehrere
-Nullansagen in derselben Runde werden zu einem Satz zusammengefasst (nicht einer pro Spieler).
+Entscheidung, siehe Entscheidung #20: ein echter API-Aufruf bräuchte einen Server-Proxy, um den
+Schlüssel geheim zu halten, und würde Firebase auf den kostenpflichtigen „Blaze"-Tarif zwingen —
+reine Textbausteine sind kostenlos, ohne Backend, sofort nutzbar, auch offline). Immer eine
+Eröffnung + **höchstens zwei** weitere Highlights, bewusst knapp statt jedes Ereignis für jeden
+Spieler auszubuchstabieren.
+
+**Themen (M15):** Held/Bösewicht der Runde, Nullansagen (Treffer & Fehlschlag), laufende Serien
+(≥3 Runden am Stück richtig „on fire" bzw. falsch „Krise"), Geber-Falle gemeistert/gescheitert
+(nur wenn die verbotene Ansage diese Runde wirklich band), auffällige Ansage-Tendenz („sagt im
+Schnitt zu vorsichtig/forsch an" — erst ab 3 gespielten Runden und ≥1 Stich Ø-Abweichung),
+frecher Spruch bei krassem Fehlgriff (≥2 Stiche daneben, „Hast du blind angesagt?"),
+Führungswechsel, größter Kletterer **und** größter Faller in der Platzierung (≥2 Plätze). Welche
+zwei Themen es in den Text schaffen, ist **nicht** mehr fest priorisiert, sondern wird pro Runde
+deterministisch durchgemischt (`shuffleKey(roundIndex, topicId)`) — sonst gewinnen bei vielen
+gleichzeitig zutreffenden Themen strukturell immer dieselben zwei (früher: Held vor Bösewicht vor
+Nullansage vor …) und der Kommentar wiederholt sich übers Spiel hinweg. Mehrere Nullansagen in
+derselben Runde werden weiterhin zu einem Satz zusammengefasst (nicht einer pro Spieler).
 Formulierung wählt pro Ereignistyp aus mehreren Varianten, deterministisch über einen Seed aus
-der Rundennummer, damit der Text bei den vielen Re-Renders durchs Live-Abo nicht flackert.
+der Rundennummer (± fester Themen-Offset), damit der Text bei den vielen Re-Renders durchs
+Live-Abo nicht flackert.
 
 ### Navigation (Seiten-Hierarchie)
 Der Zurück-Pfeil (‹) oben links führt immer **eine Ebene nach oben** in der Hierarchie
@@ -297,6 +318,10 @@ Ansicht"-Button mehr, das leistet ihr Zurück-Pfeil bereits).
 | **M10** | Malus-Bilanz überarbeitet: unterscheidet jetzt Geber-Runden ohne echten Einfluss (neutral) von Malus+richtig/Malus+falsch (`dealerMalusStats` statt `malusStats`) und ist **immer sichtbar** (vorher versteckt, wenn noch kein bindender Malus aufgetreten war — schwer von einem Bug zu unterscheiden). Darstellung als Kreisdiagramm je Spieler (CSS `conic-gradient`, grau/grün/rot, gemeinsame Legende). | ✅ fertig |
 | **M11** | **Spielerprofile** (`players`-Collection): Namen werden nicht mehr getippt, sondern aus wiederverwendbaren Profilen gewählt — Combobox mit Vorschlägen ab dem ersten Buchstaben, unbekannte Namen direkt im Formular anlegbar. Profilbilder: generiertes Identicon (`src/identicon.js`, GitHub-Stil, garantiert eindeutig) oder eigenes Foto (Canvas-Resize auf 256 px, als Data-URL im Profil-Dokument). Neue Ansichten `#/profiles`, `#/profiles/<id>` und passwortgeschützte `#/admin` (Profile zusammenführen, Spieler aus Bestandsrunden zuordnen). Grundlage für spielübergreifende Statistiken. | ✅ fertig |
 | **M12** | **UX-Feinschliff** aus echtem Gebrauch: Standard-Kartenzahl 10 (Obergrenze 15 statt 20); Rundenkommentar-Grammatik korrigiert (Plural-Verben bei mehreren Helden/Bösewichten/Führenden, „A, B und C" statt Kettung mit „und", richtungsabhängiges „nur"/„gleich" je nachdem ob weniger oder mehr Stiche als angesagt gemacht wurden); Chart-Palette umsortiert gegen zwei Grüntöne bei 5 Spielern (Entscheidung #18); Startseite wieder nach `createdAt` sortiert (Entscheidung #17); PayPal-Spendenlink auf der Startseite; App-Icons `icon-192`/`apple-touch-icon` waren fehlerhaft zugeschnitten und wurden aus `icon-512` neu erzeugt, dazu neues maskable Icon für Android (Entscheidung #19); Tabellensteuerung auf schmalen Smartphones gestapelt statt gequetscht. | ✅ fertig |
+| **M13** | **Profilbilder in der Zuschaueransicht**: Profilbilder waren bisher nur in Verwaltungs-Ansichten (Spielerstellung, Sitzreihenfolge, Profile, Spielleiter-Eingabe) sichtbar — genau dort, wo sich Mitspieler während des Spiels *nicht* aufhalten. Neue Spielerleiste ganz oben in `#/view/<id>`: alle Avatare, nach Punktestand sortiert mit Platzierung (🥇/2./3./…), bleibt auch nach der letzten Runde sichtbar (anders als die Karte „Aktuelle Runde"). Die Geber-Zeile in „Aktuelle Runde" zeigt jetzt ebenfalls Avatar + Name auf Höhe der Ansage-Zeilen („◉ Tommi gibt 10 Karten 🃏"), die redundante Karten-Pill in der Kopfzeile entfällt. | ✅ fertig |
+| **M14** | **Kleine Verbesserungen aus echtem Gebrauch**: Statusleiste im installierten iOS-PWA-Modus rutschte beim Scrollen unter Uhrzeit/Akku (`.topbar` klebte an `top: 0` statt an `env(safe-area-inset-top)` — nur im Standalone-Modus sichtbar, da Safari selbst kein „black-translucent"-Overlay hat); Kartenzahl-Eingabe im „Neues Spiel"-Formular durch großen +/− Stepper ersetzt (das native Zahlenfeld war auf dem Smartphone kaum treffbar); Feedback-Link (`mailto:`) neben dem Spendenlink auf der Startseite. | ✅ fertig |
+| **M15** | **Rundenkommentar: mehr Themenvielfalt** (siehe Entscheidung #20 für die zurückgestellte KI-Variante). Neue Themen neben Held/Bösewicht/Nullansage/Führungswechsel/Kletterer: laufende Serien (`currentStreaks`), Geber-Falle gemeistert/gescheitert je Einzelrunde (`dealerOutcomeForRound`), auffällige Ansage-Tendenz (`biddingBias`), frecher Spruch bei krassem Fehlgriff, größter Faller als Kehrseite des Kletterers. Auswahl der zwei Highlights pro Runde nicht mehr fest priorisiert, sondern deterministisch gemischt (`shuffleKey`), damit sich der Kommentar übers Spiel hinweg nicht strukturell wiederholt. | ✅ fertig |
+| **M16** | **Feinschliff aus M13/M14-Feedback**: Favicon war nur eine 192px-PNG ohne `sizes` — jetzt zusätzlich `assets/icon.svg` als primärer (skalierbar scharfer) Favicon-Link. Startseite zeigt anfangs nur die letzten 5 Spiele + „weitere anzeigen"-Button, damit Spenden-/Feedback-Buttons unten bei vielen Spielen nicht erst nach langem Scrollen erreichbar sind. Spielerleiste (M13): lange Namen wurden bei fester Breite mit `…` abgeschnitten statt umzubrechen — jetzt bis zu zwei Zeilen; Silber/Bronze-Medaillen (🥈/🥉) für Platz 2/3, vorher nur Gold für Platz 1. Geber-Zeile (M13): Name und Folgetext standen auf unterschiedlicher Höhe, weil `.avatar-name` (inline-flex) im normalen Textfluss eines `<p>` keine echte Baseline hat — Zeile ist jetzt selbst ein Flex-Container. | ✅ fertig |
 
 ### Status-Notiz (M3/M4 verifiziert)
 - Smoke-Test via Chrome-headless + DevTools-Protokoll: Startseite/`listGames` lädt,
