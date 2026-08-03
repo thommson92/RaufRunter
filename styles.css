@@ -662,3 +662,36 @@ tbody tr:nth-child(odd) td.sticky-right { background: #243044; }
 .crop-zoom-icon { font-size: 0.85rem; opacity: 0.6; flex: 0 0 auto; }
 .crop-zoom-icon-big { font-size: 1.15rem; opacity: 0.9; }
 .crop-zoom { flex: 1; accent-color: var(--primary); }
+
+/* ---- Bestenliste (#/stats): Kennzahl-Umschalter & Rangliste ---- */
+/* Chips statt Segmented Control: bei 8+ Kennzahlen brauchen die Optionen
+   Zeilenumbruch statt gleich breiter, dadurch arg schmal gequetschter
+   Buttons (wie beim seg-group der Tabellensteuerung, dort aber nur 2 Optionen). */
+.metric-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 14px;
+}
+.metric-chip {
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  font-size: 0.82rem;
+}
+.metric-chip.active { background: var(--primary); color: var(--primary-ink); font-weight: 700; border-color: var(--primary); }
+
+.stats-rank-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.stats-rank-row:last-child { border-bottom: none; }
+.stats-rank-num { width: 22px; flex: 0 0 auto; text-align: center; font-weight: 700; color: var(--muted); }
+.stats-rank-row .avatar-name { flex: 1; min-width: 0; }
+.stats-rank-value { flex: 0 0 auto; text-align: right; }
+.stats-rank-value > div:first-child { font-weight: 700; }
+.stats-rank-sub { font-size: 0.72rem; }

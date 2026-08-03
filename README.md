@@ -37,6 +37,14 @@ Mobile-first, läuft als statische Seite auf **GitHub Pages**.
 - **Profilfoto-Zuschnitt:** beim Hochladen eines Fotos wird nicht mehr stumpf die Bildmitte
   genommen — ein eigener Zuschnitt-Bildschirm lässt Ausschnitt und Zoom per Ziehen, Kneifen
   (zwei Finger) oder Regler frei wählen, bevor gespeichert wird.
+- **Spieler-Bilanz im Profil:** eigene „📊 Bilanz"-Karte je Profil mit Sieg-/Podestquote,
+  Ø-Platzierung, roter Laterne, Trefferquote, Ansage-/Stich-Index (normiert auf Kartenzahl
+  & Mitspielerzahl — vergleichbar über unterschiedlich große Runden/Spiele hinweg), Ø
+  Punkte/Runde, bestem Spielergebnis und längster Treffer-Serie.
+- **All-Time-Bestenliste (`#/stats`):** Hall of Fame mit den jeweiligen Spitzenreitern
+  (meiste Siege, beste Quoten, meiste/wenigste Stiche, mutigste Ansage, größter
+  Aufschneider, beste Geld-Bilanz, …) sowie eine vollständige, per Kennzahl umschaltbare
+  Rangliste über alle Spielerprofile.
 
 **Live:** <https://thommson92.github.io/RaufRunter/>
 
@@ -70,4 +78,7 @@ Spendenlink, korrigierte App-Icons inkl. maskable Variante, mobile Tabellensteue
 Geldeinsatz & Ausschüttung (M17): optionaler Einsatz je Spiel mit vier Ausschüttungsmodi,
 Auszahlungs-Übersicht am Spielende, nachträglich für jedes Spiel aktivier-/änderbar.
 Profilfoto-Zuschnitt (M18): eigener Ausschnitt/Zoom-Bildschirm statt festem Mitte-Crop.
+Spieler-Bilanz & All-Time-Statistiken (M19): spielübergreifende Kennzahlen je Profil
+(profile-stats.js) speisen sowohl die neue Bilanz-Karte im Profil als auch die neue
+Bestenliste (#/stats) mit Hall of Fame und umschaltbaren Ranglisten.
 Mögliche Nächstes: echter Zwei-Geräte-Test.

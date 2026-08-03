@@ -341,14 +341,23 @@ export function rankProgression(game) {
 /**
  * Summe der Ansagen & tatsächlichen Stiche je Spieler über alle
  * abgeschlossenen Runden — Basis für „meiste/wenigste Stiche angesagt".
+ *
+ * `fairShareSum` ist die Summe von `cardCount / Spielerzahl` über dieselben
+ * Runden — der „faire Anteil", der einem Spieler bei Gleichverteilung der
+ * Stiche zustünde. Grundlage für spielübergreifend vergleichbare Indizes
+ * (`profile-stats.js`): eine 10-Karten-Runde zu fünft wiegt darin zehnmal so
+ * schwer wie eine 1-Karten-Runde, und eine Runde zu viert lässt jedem
+ * rechnerisch mehr Stiche zustehen als dieselbe Runde zu sechst.
  * @param {object} game
- * @returns {Object<string,{bidSum:number, trickSum:number, roundsPlayed:number}>}
+ * @returns {Object<string,{bidSum:number, trickSum:number, roundsPlayed:number, fairShareSum:number}>}
  */
 export function bidTrickTotals(game) {
   const totals = {};
-  for (const p of game.players) totals[p.id] = { bidSum: 0, trickSum: 0, roundsPlayed: 0 };
+  for (const p of game.players) totals[p.id] = { bidSum: 0, trickSum: 0, roundsPlayed: 0, fairShareSum: 0 };
+  const playerCount = game.players.length;
   for (const round of game.rounds || []) {
     if (!round.done) continue;
+    const fairShare = playerCount > 0 ? round.cardCount / playerCount : 0;
     for (const p of game.players) {
       const bid = round.bids?.[p.id];
       const tricks = round.tricks?.[p.id];
@@ -357,6 +366,7 @@ export function bidTrickTotals(game) {
       t.bidSum += bid;
       t.trickSum += tricks;
       t.roundsPlayed += 1;
+      t.fairShareSum += fairShare;
     }
   }
   return totals;
