@@ -27,6 +27,7 @@ import {
 } from './profile-ui.js';
 import {
   standings,
+  moneyPayouts,
   allowedBids,
   biddingOrder,
   rotateToStart,
@@ -48,6 +49,33 @@ import { generateRoundCommentary } from './commentary.js';
 
 const appEl = document.getElementById('app');
 
+// Spenden-Link auf der Startseite. Bewusst der paypal.me-Handle statt der
+// E-Mail-Adresse, damit die Adresse nicht im öffentlichen HTML crawlbar ist.
+const PAYPAL_URL = 'https://paypal.me/Thommyguun';
+
+// Feedback-Link auf der Startseite — bewusst als mailto:, damit Rückmeldungen
+// direkt beim Entwickler landen statt über ein eigenes Formular/Backend.
+// Die Adresse steht dadurch (anders als beim Spendenlink oben) im HTML.
+const FEEDBACK_MAILTO = `mailto:thomas-kellner@web.de?subject=${encodeURIComponent('Rauf Runter – Feedback')}`;
+
+// Startseite zeigt anfangs nur die letzten N Spiele (Spenden-/Feedback-Buttons
+// unten sollen bei vielen Spielen nicht erst nach langem Scrollen kommen).
+const HOME_PAGE_SIZE = 5;
+
+// Ausschüttungsmodi des Geldtopfs: Label fürs <select> + Kurzerklärung darunter.
+const PAYOUT_MODE_LABELS = {
+  'winner-takes-all': 'Sieger bekommt alles',
+  'runner-up-refund': 'Zweiter bekommt seinen Einsatz zurück',
+  'podium-cascade': 'Dritter Einsatz zurück, Zweiter doppelten Einsatz',
+  manual: 'Manuelle Eingabe nach Spielende',
+};
+const PAYOUT_MODE_HINTS = {
+  'winner-takes-all': 'Der Erstplatzierte bekommt den kompletten Topf (Einsatz × Spieleranzahl).',
+  'runner-up-refund': 'Der Zweite bekommt seinen Einsatz zurück, der Rest des Topfs geht an den Sieger.',
+  'podium-cascade': 'Der Dritte bekommt seinen Einsatz zurück, der Zweite den doppelten Einsatz, der Rest geht an den Sieger.',
+  manual: 'Kein festes Schema — die Gewinne/Verluste werden nach der letzten Runde von Hand eingetragen.',
+};
+
 // Flüchtiger UI-Zustand (nicht persistiert).
 const ui = {
   draft: null,        // Entwurf im "Neues Spiel"-Formular
@@ -55,6 +83,7 @@ const ui = {
   tableSort: 'seat',  // Punktestand-Sortierung: 'seat' (Sitzreihe) | 'rank' (Punkte)
   tableTranspose: false, // Achsen tauschen: false = Spieler-Zeilen, true = Runden-Zeilen
   lottery: null, // { profiles, winner } während der Geber-Auslosung beim Anlegen (#/new)
+  homeVisibleCount: HOME_PAGE_SIZE, // wie viele Spiele auf der Startseite sichtbar sind
   pickerQuery: {}, // Sucheingabe je Combobox (Schlüssel = data-i)
   adminUnlocked: false, // Passwort im Admin-Bereich eingegeben (nur für diese Sitzung)
   admin: null, // { games, mergeFrom, mergeTo } im Admin-Bereich
@@ -89,10 +118,35 @@ function askPassword(what) {
 const current = { id: null, game: undefined, unsub: null };
 
 // ---------- Helpers ----------
+
+/**
+ * Eingabefeld robust in eine endliche Zahl umwandeln — `parseFloat('1e309')`
+ * liefert z. B. `Infinity`, das (anders als `NaN`) die `|| 0`-Falle nicht
+ * auslöst und unbemerkt bis in Firestore und `moneyPayouts()` durchsickern
+ * würde (dort macht `Infinity * 0 = NaN` dann JEDE Auszahlung kaputt, nicht
+ * nur die des Spielers, der den Wert eingegeben hat).
+ */
+function toFiniteNumber(v, fallback = 0) {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 function fmtScore(n) {
   if (n == null) return '–';
   const cls = n > 0 ? 'pos' : n < 0 ? 'neg' : '';
   return `<span class="${cls}">${n > 0 ? '+' : ''}${n}</span>`;
+}
+
+/** Reiner Betrag ohne Vorzeichen/Farbe, z. B. für Einsatz/Topf-Angaben. */
+function fmtEuro(n) {
+  return `${n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+}
+
+/** Gewinn/Verlust mit Vorzeichen und Farbe (grün/rot), z. B. für die Auszahlungs-Übersicht. */
+function fmtMoney(n) {
+  if (n == null) return '<span class="muted">–</span>';
+  const cls = n > 0 ? 'pos' : n < 0 ? 'neg' : '';
+  return `<span class="${cls}">${n > 0 ? '+' : ''}${fmtEuro(n)}</span>`;
 }
 
 function seatSorted(game) {
@@ -219,8 +273,11 @@ async function renderHome() {
   }
   if (currentRoute().view !== 'home') return; // inzwischen weggenavigiert
 
+  const visible = games.slice(0, ui.homeVisibleCount);
+  const remaining = games.length - visible.length;
+
   const items = games.length
-    ? games
+    ? visible
         .map((g) => {
           const done = g.rounds.filter((r) => r.done).length;
           const total = g.rounds.length;
@@ -248,8 +305,19 @@ async function renderHome() {
       <button class="icon-btn btn-ghost" data-action="profiles" title="Spielerprofile">👥</button>
     </div>
     ${items}
+    ${
+      remaining > 0
+        ? `<button class="btn-ghost" data-action="show-more-games" style="width:100%;margin-bottom:14px">+ ${remaining} ${
+            remaining === 1 ? 'weiteres Spiel' : 'weitere Spiele'
+          } anzeigen</button>`
+        : ''
+    }
     <div class="card center" style="border-style:dashed">
       <button class="btn-primary" data-action="new" style="width:100%">+ Neues Spiel</button>
+    </div>
+    <div class="btn-row" style="margin-bottom:14px">
+      <a class="btn-ghost" href="${PAYPAL_URL}" target="_blank" rel="noopener noreferrer">☕ Entwickler unterstützen</a>
+      <a class="btn-ghost" href="${FEEDBACK_MAILTO}">✉️ Feedback geben</a>
     </div>
     <p class="center muted" style="font-size:0.8rem">Rauf & Runter – Punkte App · © ${new Date().getFullYear()} Thomas Kellner</p>
   `;
@@ -292,17 +360,68 @@ function pickerStateFor(key, query) {
   };
 }
 
+/**
+ * „💰 Geld"-Karte: ob um Geld gespielt wird, Einsatz, Ausschüttungsmodus.
+ * Identisches Markup (gleiche `data-field`-Namen) für den Entwurf im
+ * "Neues Spiel"-Formular (`renderNew`) UND die nachträgliche Bearbeitung in
+ * der Schreiber-Ansicht (`renderScorer`) — nur die Auswertung des `change`-
+ * Events unterscheidet sich je Route (siehe `onChange`).
+ * `podium-cascade` braucht mindestens 3 Spieler (sonst bekäme bei 2 Spielern
+ * der Zweite den doppelten Einsatz und der "Sieger" ginge leer aus oder
+ * sogar ins Minus — das Gegenteil der Modus-Idee) und ist bei weniger
+ * deaktiviert, siehe `moneyPayouts` in `src/engine.js`.
+ * @param {{moneyEnabled:boolean, stake:number, payoutMode:string}} fields
+ * @param {number} playerCount aktuelle Spieleranzahl (Entwurf oder Spiel)
+ */
+function moneyCard(fields, playerCount) {
+  const modeOptions = Object.entries(PAYOUT_MODE_LABELS)
+    .map(([value, label]) => {
+      const disabled = value === 'podium-cascade' && playerCount < 3;
+      return `<option value="${value}" ${fields.payoutMode === value ? 'selected' : ''} ${
+        disabled ? 'disabled' : ''
+      }>${esc(label)}${disabled ? ' (ab 3 Spielern)' : ''}</option>`;
+    })
+    .join('');
+  return `
+    <div class="card">
+      <h2 style="margin:0 0 10px">💰 Geld</h2>
+      <label class="check-row">
+        <input type="checkbox" data-field="moneyEnabled" ${fields.moneyEnabled ? 'checked' : ''} />
+        <span>Es wird um Geld gespielt</span>
+      </label>
+      ${
+        fields.moneyEnabled
+          ? `
+        <label>Einsatz pro Spieler (€, fürs ganze Spiel)</label>
+        <div class="stepper">
+          <button type="button" class="stepper-btn" data-action="stake-dec" aria-label="Einsatz verringern" ${
+            fields.stake <= 0 ? 'disabled' : ''
+          }>−</button>
+          <input class="stepper-value" data-field="stake" type="number" inputmode="decimal" min="0" step="1" value="${fields.stake}" />
+          <button type="button" class="stepper-btn" data-action="stake-inc" aria-label="Einsatz erhöhen">+</button>
+        </div>
+        <label>Ausschüttung</label>
+        <select data-field="payoutMode">${modeOptions}</select>
+        <small class="muted">${esc(PAYOUT_MODE_HINTS[fields.payoutMode] || '')}</small>`
+          : ''
+      }
+    </div>`;
+}
+
 function renderNew() {
   if (ui.lottery) return renderDealerLottery();
   if (renderProfileGate()) return;
   if (!ui.draft) {
     ui.draft = {
       name: '',
-      maxCards: 7,
+      maxCards: 10,
       players: [null, null], // Profil-IDs in Sitzreihenfolge
       restrictLastBid: true,
       upOnly: false,
       rollDealer: false,
+      moneyEnabled: false,
+      stake: 10,
+      payoutMode: 'winner-takes-all',
     };
   }
   const d = ui.draft;
@@ -328,7 +447,15 @@ function renderNew() {
       <label>Name des Spiels</label>
       <input data-field="name" value="${esc(d.name)}" placeholder="z.B. Spieleabend" />
       <label>Bis wie viele Karten? (Höhepunkt)</label>
-      <input data-field="maxCards" type="number" inputmode="numeric" min="1" max="20" value="${d.maxCards}" />
+      <div class="stepper">
+        <button type="button" class="stepper-btn" data-action="maxcards-dec" aria-label="Weniger Karten" ${
+          d.maxCards <= 1 ? 'disabled' : ''
+        }>−</button>
+        <input class="stepper-value" data-field="maxCards" type="number" inputmode="numeric" min="1" max="15" value="${d.maxCards}" />
+        <button type="button" class="stepper-btn" data-action="maxcards-inc" aria-label="Mehr Karten" ${
+          d.maxCards >= 15 ? 'disabled' : ''
+        }>+</button>
+      </div>
       <label class="check-row">
         <input type="checkbox" data-field="playDown" ${d.upOnly ? '' : 'checked'} />
         <span>Nach dem Höhepunkt wieder herunterspielen</span>
@@ -342,6 +469,7 @@ function renderNew() {
       </label>
       <small class="muted">Standardregel an: Die Summe aller Ansagen darf nicht der Kartenzahl entsprechen. Aus = beliebige Ansagen erlaubt.</small>
     </div>
+    ${moneyCard(d, d.players.length)}
     <div class="card">
       <div class="row spread">
         <h2 style="margin:0">Spieler & Sitzreihenfolge</h2>
@@ -405,6 +533,9 @@ function createAndEnterGame(seatedProfiles) {
     profiles: seatedProfiles,
     restrictLastBid: ui.draft.restrictLastBid !== false,
     upOnly: ui.draft.upOnly === true,
+    moneyEnabled: ui.draft.moneyEnabled === true,
+    stake: ui.draft.stake,
+    payoutMode: ui.draft.payoutMode,
   });
   // Bewusst ohne await — wie in saveCurrent(): Firestore löst das Promise erst
   // bei Server-Bestätigung auf, offline also nie. Wir würden nicht navigieren,
@@ -798,7 +929,7 @@ function entryPanel(game) {
     const allTricks = seated.every((p) => round.tricks[p.id] != null);
 
     tricksSection = `
-      <h3 style="margin-top:18px">Gemachte Stiche</h3>
+      <h3 class="section-label">Auswertung</h3>
       ${tRows}
       ${warn}
       <button class="btn-primary" data-action="finish-round" style="width:100%;margin-top:12px"
@@ -809,15 +940,13 @@ function entryPanel(game) {
 
   return `
     <div class="card">
-      <div class="row spread">
-        <h2 style="margin:0">Runde ${ui.activeRound + 1}/${game.rounds.length}</h2>
-        <span class="pill">${cc} ${cc === 1 ? 'Karte' : 'Karten'}</span>
-      </div>
+      <h2 style="margin:0">Runde ${ui.activeRound + 1}/${game.rounds.length}</h2>
       ${
         dealer
-          ? `<p class="muted" style="margin:6px 0 0;font-size:0.85rem">🃏 ${esc(
-              dealer.name,
-            )} gibt${restrict ? ' und sagt zuletzt an' : ''}</p>`
+          ? `<h3 class="section-label">Geber</h3>
+             <p class="dealer-line">${avatarNameHtml(profileOf(dealer), dealer.name)}<span>gibt ${cc} ${
+              cc === 1 ? 'Karte' : 'Karten'
+            } 🃏${restrict ? ' · sagt zuletzt an' : ''}</span></p>`
           : ''
       }
       <div class="row spread" style="margin-top:12px">
@@ -837,7 +966,7 @@ function entryPanel(game) {
           }
         </div>
       </div>
-      <h3 style="margin-top:18px">Ansagen</h3>
+      <h3 class="section-label">Ansagen</h3>
       ${bidRows}
       ${tricksSection}
     </div>`;
@@ -972,6 +1101,117 @@ function scrollTableToLatest() {
   if (wrap) wrap.scrollLeft = wrap.scrollWidth;
 }
 
+const RANK_MEDALS = { 1: '🥇', 2: '🥈', 3: '🥉' };
+
+/**
+ * „💰 Auszahlung"-Karte: wer hat am Ende wie viel gewonnen/verloren
+ * (`engine.moneyPayouts`). Nur sichtbar, wenn für das Spiel Geld läuft;
+ * berechnet wird erst nach der letzten Runde (vorher nur ein Hinweis).
+ * Bei `payoutMode === 'manual'` sind die Beträge in der Schreiber-Ansicht
+ * (`editable === true`) direkt eintragbare Zahlenfelder (schreibt in
+ * `current.game.manualPayouts` und speichert über `saveCurrent()`, siehe
+ * `onClick`/`onChange`), in der Zuschauer-Ansicht reiner Text.
+ * @param {object} game
+ * @param {boolean} editable Schreiber-Ansicht (true) oder Zuschauer-Ansicht (false)
+ */
+function payoutCard(game, editable) {
+  if (!game.moneyEnabled) return '';
+
+  const allDone = game.rounds.length > 0 && game.rounds.every((r) => r.done);
+  if (!allDone) {
+    return `
+      <div class="card">
+        <h2 style="margin:0 0 10px">💰 Auszahlung</h2>
+        <p class="muted" style="margin:0">Wird nach der letzten Runde berechnet.</p>
+      </div>`;
+  }
+
+  const isManual = game.payoutMode === 'manual';
+  const payouts = [...moneyPayouts(game)].sort((a, b) => (b.net ?? -Infinity) - (a.net ?? -Infinity));
+  const byId = Object.fromEntries(game.players.map((p) => [p.id, p]));
+
+  const rows = payouts
+    .map((entry) => {
+      const p = byId[entry.playerId];
+      const place = RANK_MEDALS[entry.rank] || `${entry.rank}.`;
+      const amount =
+        isManual && editable
+          ? `<input class="payout-input" type="number" step="0.5" data-action="set-manual-payout"
+               data-pid="${esc(entry.playerId)}" value="${entry.net ?? ''}" placeholder="0" />`
+          : entry.net == null
+            ? '<span class="muted payout-empty">noch nicht eingetragen</span>'
+            : fmtMoney(entry.net);
+      return `
+        <div class="payout-row">
+          <span class="payout-rank">${place}</span>
+          ${avatarNameHtml(profileOf(p), entry.name)}
+          <span class="payout-amount">${amount}</span>
+        </div>`;
+    })
+    .join('');
+
+  const pot = (game.stake || 0) * game.players.length;
+  // Fehlendes payoutMode (z.B. Geld nachträglich aktiviert, aber Auswahl nie
+  // angefasst — moneyCard zeigt dann zwar korrekt "Sieger bekommt alles" an,
+  // schreibt das aber erst bei echter Auswahl ins Dokument) ⇒ gleicher
+  // Default wie in moneyCard/moneyPayouts, sonst würde hier "undefined" stehen.
+  const effectiveMode = game.payoutMode || 'winner-takes-all';
+  const subline = isManual
+    ? esc(PAYOUT_MODE_LABELS.manual)
+    : `Einsatz ${fmtEuro(game.stake || 0)} × ${game.players.length} Spieler = Topf ${fmtEuro(pot)} · ${esc(
+        PAYOUT_MODE_LABELS[effectiveMode],
+      )}`;
+
+  return `
+    <div class="card">
+      <h2 style="margin:0 0 4px">💰 Auszahlung</h2>
+      <p class="muted" style="margin:0 0 10px;font-size:0.8rem">${subline}</p>
+      ${rows}
+    </div>`;
+}
+
+/**
+ * Avatar-Leiste ganz oben in der Zuschaueransicht — der einzige Ort, an dem
+ * alle Spieler mit Profilbild dauerhaft sichtbar sind, auch nach der letzten
+ * Runde (wenn die Karte „Aktuelle Runde" schon verschwunden ist). Vor der
+ * ersten fertigen Runde in Sitzreihenfolge ohne Platz/Punkte, sonst nach
+ * Punktestand sortiert mit Platzierung (Top 3 als Medaille).
+ */
+function playerStrip(game) {
+  const doneRounds = game.rounds.filter((r) => r.done);
+  if (!doneRounds.length) {
+    const items = seatSorted(game)
+      .map(
+        (p) => `
+        <div class="player-strip-item">
+          ${avatarHtml(profileOf(p), 52)}
+          <span class="player-strip-name">${esc(p.name)}</span>
+        </div>`,
+      )
+      .join('');
+    return `<div class="card player-strip">${items}</div>`;
+  }
+
+  const { byPlayer, ranking } = standings(game);
+  const byId = Object.fromEntries(game.players.map((p) => [p.id, p]));
+  const items = ranking
+    .map((r) => {
+      const p = byId[r.playerId];
+      const place = RANK_MEDALS[r.rank] || `${r.rank}.`;
+      return `
+        <div class="player-strip-item">
+          ${avatarHtml(profileOf(p), 52)}
+          <span class="player-strip-name-row">
+            <span class="player-strip-rank">${place}</span>
+            <span class="player-strip-name">${esc(p.name)}</span>
+          </span>
+          <span class="player-strip-score">${fmtScore(byPlayer[p.id].total)}</span>
+        </div>`;
+    })
+    .join('');
+  return `<div class="card player-strip">${items}</div>`;
+}
+
 /**
  * Live-Status der aktuell laufenden Runde für die Zuschaueransicht: Geber &
  * Kartenzahl, wer bereits angesagt hat (und was), wie viele Stiche noch
@@ -1035,21 +1275,21 @@ function currentRoundCard(game) {
       })
       .join('');
     tricksBlock = `
-      <h3 style="margin-top:16px">Gemachte Stiche</h3>
+      <h3 class="section-label">Auswertung</h3>
       ${trickRows}
       <p class="muted" style="margin:8px 0 0">Bisher gemacht: <strong>${trickSum}</strong> von ${cc}</p>`;
   }
 
   return `
     <div class="card">
-      <div class="row spread">
-        <h2 style="margin:0">Aktuelle Runde</h2>
-        <span class="pill">${cc} ${cc === 1 ? 'Karte' : 'Karten'}</span>
-      </div>
-      <p class="muted" style="margin:6px 0 0;font-size:0.85rem">🃏 ${esc(dealer.name)} gibt${
+      <h2 style="margin:0">Aktuelle Runde</h2>
+      <h3 class="section-label">Geber</h3>
+      <p class="dealer-line">${avatarNameHtml(profileOf(dealer), dealer.name)}<span>gibt ${cc} ${
+    cc === 1 ? 'Karte' : 'Karten'
+  } 🃏${
     trump ? ` · <span class="trump"><span class="dot dot-${trump}"></span>${trump}</span>` : ''
-  }</p>
-      <h3 style="margin-top:16px">Ansagen</h3>
+  }</span></p>
+      <h3 class="section-label">Ansagen</h3>
       ${bidRows}
       ${bidSummary}
       ${tricksBlock}
@@ -1077,6 +1317,15 @@ function renderScorer() {
     ${entryPanel(game)}
     ${roundsHistory(game)}
     ${standingsTable(game)}
+    ${payoutCard(game, true)}
+    ${moneyCard(
+      {
+        moneyEnabled: game.moneyEnabled === true,
+        stake: game.stake || 10,
+        payoutMode: game.payoutMode || 'winner-takes-all',
+      },
+      game.players.length,
+    )}
     <div class="card">
       <div class="btn-row">
         <button class="btn-ghost" data-action="view" data-id="${esc(game.id)}">👁 Zuschauer-Ansicht</button>
@@ -1101,9 +1350,11 @@ function renderViewer() {
     <p class="muted progress" style="margin-top:0">Runde ${Math.min(done + 1, game.rounds.length)}/${
     game.rounds.length
   } · nur Ansicht</p>
+    ${playerStrip(game)}
     ${currentRoundCard(game)}
     ${commentaryCard(game)}
     ${standingsTable(game)}
+    ${payoutCard(game, false)}
     ${chartCard('Punkteverlauf', 'score')}
     ${chartCard('Platzierungsverlauf', 'rank')}
     ${statsFactsCard(game)}
@@ -1355,13 +1606,19 @@ function readDraftFromInputs() {
   const name = appEl.querySelector('[data-field="name"]');
   const max = appEl.querySelector('[data-field="maxCards"]');
   if (name) ui.draft.name = name.value;
-  if (max) ui.draft.maxCards = Math.max(1, Math.min(20, parseInt(max.value, 10) || 1));
+  if (max) ui.draft.maxCards = Math.max(1, Math.min(15, parseInt(max.value, 10) || 1));
   const restrict = appEl.querySelector('[data-field="restrictLastBid"]');
   if (restrict) ui.draft.restrictLastBid = restrict.checked;
   const playDown = appEl.querySelector('[data-field="playDown"]');
   if (playDown) ui.draft.upOnly = !playDown.checked;
   const rollDealer = appEl.querySelector('[data-field="rollDealer"]');
   if (rollDealer) ui.draft.rollDealer = rollDealer.checked;
+  const moneyEnabled = appEl.querySelector('[data-field="moneyEnabled"]');
+  if (moneyEnabled) ui.draft.moneyEnabled = moneyEnabled.checked;
+  const stake = appEl.querySelector('[data-field="stake"]');
+  if (stake) ui.draft.stake = Math.max(0, toFiniteNumber(stake.value));
+  const payoutMode = appEl.querySelector('[data-field="payoutMode"]');
+  if (payoutMode) ui.draft.payoutMode = payoutMode.value;
   syncPickerQueries();
 }
 
@@ -1563,6 +1820,10 @@ async function onClick(e) {
       resetDraft();
       navigate('/new');
       break;
+    case 'show-more-games':
+      ui.homeVisibleCount += HOME_PAGE_SIZE;
+      renderHome();
+      break;
     case 'open':
       ui.activeRound = null;
       navigate('/game/' + gid);
@@ -1596,6 +1857,32 @@ async function onClick(e) {
       renderActiveView();
       break;
 
+    case 'maxcards-dec':
+    case 'maxcards-inc':
+      readDraftFromInputs();
+      ui.draft.maxCards = Math.max(
+        1,
+        Math.min(15, ui.draft.maxCards + (action === 'maxcards-inc' ? 1 : -1)),
+      );
+      renderNew();
+      break;
+
+    case 'stake-dec':
+    case 'stake-inc': {
+      const delta = action === 'stake-inc' ? 1 : -1;
+      // Gleiche Karte in zwei Routen (siehe moneyCard): im laufenden Spiel
+      // direkt am geladenen Dokument ändern, im Entwurf am Formular-State.
+      if (currentRoute().view === 'game' && current.game) {
+        current.game.stake = Math.max(0, (current.game.stake || 0) + delta);
+        saveCurrent();
+      } else {
+        readDraftFromInputs();
+        ui.draft.stake = Math.max(0, ui.draft.stake + delta);
+        renderNew();
+      }
+      break;
+    }
+
     case 'add-player':
       readDraftFromInputs();
       ui.draft.players.push(null);
@@ -1605,6 +1892,12 @@ async function onClick(e) {
       readDraftFromInputs();
       ui.draft.players.splice(+i, 1);
       ui.pickerQuery = {};
+      // "Dritter/Zweiter"-Ausschüttung ergibt unter 3 Spielern keinen Sinn
+      // mehr (siehe moneyCard) — Auswahl sonst als deaktivierte, aber noch
+      // ausgewählte Option hängen lassen.
+      if (ui.draft.payoutMode === 'podium-cascade' && ui.draft.players.length < 3) {
+        ui.draft.payoutMode = 'winner-takes-all';
+      }
       renderNew();
       break;
 
@@ -1838,6 +2131,18 @@ function onFocusIn(e) {
 }
 
 async function onChange(e) {
+  // Manuelle Auszahlung eingetragen (payoutMode "manual", Schreiber-Ansicht).
+  const manualPayoutInput = e.target.closest('[data-action="set-manual-payout"]');
+  if (manualPayoutInput && current.game) {
+    const pid = manualPayoutInput.dataset.pid;
+    const raw = manualPayoutInput.value.trim();
+    current.game.manualPayouts = current.game.manualPayouts || {};
+    if (raw === '') delete current.game.manualPayouts[pid];
+    else current.game.manualPayouts[pid] = toFiniteNumber(raw);
+    saveCurrent();
+    return;
+  }
+
   // Foto für ein Profilbild gewählt
   if (e.target.closest('[data-photo-input]')) {
     const file = e.target.files?.[0];
@@ -1864,10 +2169,29 @@ async function onChange(e) {
     return;
   }
 
+  // Geld-Einstellungen nachträglich in der Schreiber-Ansicht geändert →
+  // direkt am geladenen Spiel mutieren und speichern (gleiches Muster wie
+  // set-bid/set-trick: current.game ist die einzige Wahrheit, saveCurrent()
+  // rendert danach neu).
+  const moneyField = e.target.closest(
+    '[data-field="moneyEnabled"], [data-field="stake"], [data-field="payoutMode"]',
+  );
+  if (moneyField && currentRoute().view === 'game' && current.game) {
+    if (moneyField.dataset.field === 'moneyEnabled') current.game.moneyEnabled = moneyField.checked;
+    else if (moneyField.dataset.field === 'stake') current.game.stake = Math.max(0, toFiniteNumber(moneyField.value));
+    else if (moneyField.dataset.field === 'payoutMode') current.game.payoutMode = moneyField.value;
+    saveCurrent();
+    return;
+  }
+
   // Änderungen im "Neues Spiel"-Formular (Kartenzahl/Schalter) → neu rendern,
   // damit Rundenfolge und -anzahl sofort stimmen.
   if (currentRoute().view !== 'new') return;
-  if (e.target.closest('[data-field="maxCards"], [data-field="playDown"], [data-field="restrictLastBid"]')) {
+  if (
+    e.target.closest(
+      '[data-field="maxCards"], [data-field="playDown"], [data-field="restrictLastBid"], [data-field="moneyEnabled"], [data-field="stake"], [data-field="payoutMode"]',
+    )
+  ) {
     readDraftFromInputs();
     renderNew();
   }

@@ -183,6 +183,94 @@ export function standings(game) {
 }
 
 /**
+ * Feste Auszahlung je Rang als Vielfaches des Einsatzes für die Preset-
+ * Ausschüttungsmodi. Rang 1 kommt bewusst NICHT vor — er bekommt immer den
+ * nicht anderweitig vergebenen Rest des Topfs (siehe moneyPayouts).
+ */
+const PAYOUT_MULTIPLES = {
+  'winner-takes-all': {},
+  'runner-up-refund': { 2: 1 },
+  'podium-cascade': { 2: 2, 3: 1 },
+};
+
+/**
+ * Geldauszahlung je Spieler am Ende eines Spiels mit Einsatz. `null`, wenn
+ * für das Spiel kein Geld läuft (`moneyEnabled` falsy).
+ *
+ * Preset-Modi (`winner-takes-all`/`runner-up-refund`/`podium-cascade`) zahlen
+ * den Rängen aus `PAYOUT_MULTIPLES` ein festes Vielfaches des Einsatzes
+ * zurück; alles, was so nicht vergeben wird, geht **gesammelt** an Rang 1
+ * (bei Gleichstand gleichmäßig gesplittet).
+ *
+ * Geteilte Ränge bei einer Gruppe von k Spielern: die Gruppe belegt fiktiv
+ * die Plätze `rank .. rank+k-1` (geteilter Rang lässt die Folgeplätze aus,
+ * siehe `standings()`/`withSharedRanks` — bei zwei Erstplatzierten gibt es
+ * z. B. keinen Platz 2). Alle für diese Plätze vorgesehenen festen
+ * Auszahlungen werden zusammengelegt und gleichmäßig auf die Gruppe verteilt
+ * — nicht jedem Gruppenmitglied einzeln der volle Betrag. Werden z. B. bei
+ * `podium-cascade` zwei Spieler gemeinsam Zweiter, teilen sie sich Platz-2-
+ * UND Platz-3-Auszahlung (der Dritte fällt ja aus); werden bei
+ * `runner-up-refund` drei Spieler gemeinsam Zweiter, teilen sie sich den
+ * einen dafür vorgesehenen Einsatz-Rückerstattungsbetrag. Das behandelt auch
+ * Rang 1 ohne Sonderfall: teilen sich zwei Spieler Rang 1, existiert kein
+ * Rang 2 — die dafür vorgesehene Auszahlung fließt dann einfach nicht ab und
+ * bleibt Teil des Rests für Rang 1.
+ * `manual` reicht `game.manualPayouts[playerId]` unverändert als Netto-Betrag
+ * durch (`null` = noch nicht eingetragen).
+ *
+ * Beträge werden auf den Cent gerundet; bei einem Split unter ungerader
+ * Spielerzahl kann die Summe aller `net` dadurch um bis zu 1 Cent von 0
+ * abweichen — für einen Freundeskreis-Rechner unkritisch.
+ * @param {object} game
+ * @returns {null | Array<{playerId:string, name:string, rank:number, net:number|null}>}
+ */
+export function moneyPayouts(game) {
+  if (!game.moneyEnabled) return null;
+  const { ranking } = standings(game);
+  const round2 = (n) => Math.round(n * 100) / 100;
+
+  if (game.payoutMode === 'manual') {
+    return ranking
+      .map((r) => ({
+        playerId: r.playerId,
+        name: r.name,
+        rank: r.rank,
+        net: game.manualPayouts?.[r.playerId] ?? null,
+      }))
+      .sort((a, b) => a.rank - b.rank);
+  }
+
+  const stake = game.stake || 0;
+  const pot = stake * ranking.length;
+  const multiples = PAYOUT_MULTIPLES[game.payoutMode] || {};
+
+  const byRank = {};
+  for (const r of ranking) (byRank[r.rank] ??= []).push(r);
+
+  const results = [];
+  let remainder = pot;
+  for (const [rankStr, players] of Object.entries(byRank)) {
+    const rank = Number(rankStr);
+    if (rank === 1) continue; // bekommt am Ende den Rest
+    let groupTotal = 0;
+    for (let slot = rank; slot < rank + players.length; slot++) {
+      groupTotal += stake * (multiples[slot] ?? 0);
+    }
+    remainder -= groupTotal;
+    const grossEach = groupTotal / players.length;
+    for (const p of players) {
+      results.push({ playerId: p.playerId, name: p.name, rank, net: round2(grossEach - stake) });
+    }
+  }
+  const winners = byRank[1] || [];
+  const winnerGrossEach = winners.length ? remainder / winners.length : 0;
+  for (const p of winners) {
+    results.push({ playerId: p.playerId, name: p.name, rank: 1, net: round2(winnerGrossEach - stake) });
+  }
+  return results.sort((a, b) => a.rank - b.rank);
+}
+
+/**
  * Rangverlauf über die Runden: für jede abgeschlossene Runde der kumulierte
  * Punktestand und geteilte Rang jedes Spielers zu diesem Zeitpunkt.
  * Basis für den grafischen Platzierungs-/Punkteverlauf in der Zuschaueransicht.
@@ -340,6 +428,38 @@ export function trumpCounts(game) {
 }
 
 /**
+ * Auswertung einer einzelnen Runde für ihren Geber (letzter Ansagender):
+ * war die verbotene Ansage überhaupt bindend, und falls ja, lag er richtig
+ * oder falsch? `null`, wenn die Runde (noch) nicht vollständig auswertbar ist.
+ * Gemeinsamer Kern für `dealerMalusStats` (Bilanz übers ganze Spiel) und
+ * `roundEvents` (Einzelrunden-Fakt fürs Rundenkommentar).
+ * @param {object[]} seated Spieler in Sitzreihenfolge
+ * @param {object} round
+ * @param {boolean} restrictActive
+ * @returns {null | {dealerId:string, dealerName:string, bound:boolean, correct:boolean}}
+ */
+function dealerRoundOutcome(seated, round, restrictActive) {
+  const order = biddingOrder(seated, round.index);
+  if (!order.length) return null;
+  const dealer = order[order.length - 1];
+
+  let sumOthers = 0;
+  let allOthersBid = true;
+  for (const p of seated) {
+    if (p.id === dealer.id) continue;
+    const b = round.bids?.[p.id];
+    if (b == null) { allOthersBid = false; break; }
+    sumOthers += b;
+  }
+  const bid = round.bids?.[dealer.id];
+  const tricks = round.tricks?.[dealer.id];
+  if (!allOthersBid || bid == null || tricks == null) return null; // Runde nicht auswertbar
+
+  const bound = restrictActive && forbiddenBid(round.cardCount, sumOthers) != null;
+  return { dealerId: dealer.id, dealerName: dealer.name, bound, correct: bid === tricks };
+}
+
+/**
  * Bilanz je Spieler, wie oft er als letzter Ansagender (Geber) dran war —
  * und was das für ihn bedeutet hat. Jede Geber-Runde fällt in genau eine
  * von drei Kategorien:
@@ -361,31 +481,97 @@ export function dealerMalusStats(game) {
 
   for (const round of game.rounds || []) {
     if (!round.done) continue;
-    const order = biddingOrder(seated, round.index);
-    if (!order.length) continue;
-    const dealer = order[order.length - 1];
+    const outcome = dealerRoundOutcome(seated, round, restrictActive);
+    if (!outcome) continue;
 
-    let sumOthers = 0;
-    let allOthersBid = true;
-    for (const p of seated) {
-      if (p.id === dealer.id) continue;
-      const b = round.bids?.[p.id];
-      if (b == null) { allOthersBid = false; break; }
-      sumOthers += b;
-    }
-    const bid = round.bids?.[dealer.id];
-    const tricks = round.tricks?.[dealer.id];
-    if (!allOthersBid || bid == null || tricks == null) continue; // Runde nicht auswertbar
-
-    const s = stats[dealer.id];
+    const s = stats[outcome.dealerId];
     s.dealerRounds += 1;
-
-    const bound = restrictActive && forbiddenBid(round.cardCount, sumOthers) != null;
-    if (!bound) s.neutral += 1;
-    else if (bid === tricks) s.malusCorrect += 1;
+    if (!outcome.bound) s.neutral += 1;
+    else if (outcome.correct) s.malusCorrect += 1;
     else s.malusWrong += 1;
   }
   return stats;
+}
+
+/**
+ * `dealerRoundOutcome` für eine einzelne, bereits fertige Runde (Grundlage
+ * für den Rundenkommentar: hat der Geber die Ansage-Falle gemeistert oder
+ * ist er daran gescheitert?). `null`, wenn die Runde nicht existiert, nicht
+ * fertig oder nicht auswertbar ist.
+ * @param {object} game
+ * @param {number} roundIndex
+ * @returns {null | {dealerId:string, dealerName:string, bound:boolean, correct:boolean}}
+ */
+export function dealerOutcomeForRound(game, roundIndex) {
+  const round = game.rounds?.[roundIndex];
+  if (!round || !round.done) return null;
+  const seated = [...game.players].sort((a, b) => a.seatOrder - b.seatOrder);
+  const restrictActive = game.restrictLastBid !== false;
+  return dealerRoundOutcome(seated, round, restrictActive);
+}
+
+/**
+ * Aktuelle Serie richtiger bzw. falscher Ansagen je Spieler, gemessen bis
+ * einschließlich `roundIndex` (nicht die längste je erreichte Serie — siehe
+ * dafür `longestCorrectStreak` — sondern die, die genau jetzt noch läuft).
+ * Grundlage für "X ist seit N Runden am Stück richtig"-Kommentare.
+ * @param {object} game
+ * @param {number} roundIndex
+ * @returns {Object<string, {type: 'correct'|'wrong'|null, length: number}>}
+ */
+export function currentStreaks(game, roundIndex) {
+  const state = {};
+  for (const p of game.players) state[p.id] = { type: null, length: 0 };
+
+  const rounds = (game.rounds || [])
+    .filter((r) => r.done && r.index <= roundIndex)
+    .sort((a, b) => a.index - b.index);
+
+  for (const round of rounds) {
+    for (const p of game.players) {
+      const bid = round.bids?.[p.id];
+      const tricks = round.tricks?.[p.id];
+      if (bid == null || tricks == null) continue;
+      const type = bid === tricks ? 'correct' : 'wrong';
+      const s = state[p.id];
+      s.length = s.type === type ? s.length + 1 : 1;
+      s.type = type;
+    }
+  }
+  return state;
+}
+
+/**
+ * Tendenz je Spieler, über- oder unterzuansagen — Durchschnitt aus
+ * (gemachte Stiche − Ansage) über alle gespielten Runden bis einschließlich
+ * `roundIndex`. Positiv ⇒ holt im Schnitt mehr Stiche als angesagt (sagt zu
+ * vorsichtig an), negativ ⇒ holt im Schnitt weniger (sagt zu forsch an).
+ * @param {object} game
+ * @param {number} roundIndex
+ * @returns {Object<string, {avgDiff:number, attempts:number}>}
+ */
+export function biddingBias(game, roundIndex) {
+  const sums = {};
+  for (const p of game.players) sums[p.id] = { diffSum: 0, attempts: 0 };
+
+  const rounds = (game.rounds || []).filter((r) => r.done && r.index <= roundIndex);
+  for (const round of rounds) {
+    for (const p of game.players) {
+      const bid = round.bids?.[p.id];
+      const tricks = round.tricks?.[p.id];
+      if (bid == null || tricks == null) continue;
+      const s = sums[p.id];
+      s.diffSum += tricks - bid;
+      s.attempts += 1;
+    }
+  }
+
+  const result = {};
+  for (const p of game.players) {
+    const s = sums[p.id];
+    result[p.id] = { avgDiff: s.attempts ? s.diffSum / s.attempts : 0, attempts: s.attempts };
+  }
+  return result;
 }
 
 /**
@@ -466,6 +652,15 @@ export function roundEvents(game, roundIndex) {
     }))
     .filter((e) => e.prevRank != null && e.rank != null && e.prevRank !== e.rank);
 
+  // Weitere Themen fürs Rundenkommentar (Serien, Geber-Falle, Ansage-Tendenz,
+  // krasse Fehlschätzungen) — reine Zusatzfakten, ändern nichts an den Feldern
+  // oben, die schon andere Ansichten (Statistiken) mitbenutzen.
+  const streaks = currentStreaks(game, roundIndex);
+  const dealerOutcome = dealerOutcomeForRound(game, roundIndex);
+  const bias = biddingBias(game, roundIndex);
+  // Nullansagen haben mit zeroBidLine schon eine eigene, treffendere Formulierung.
+  const wildMisses = perPlayer.filter((e) => e.bid !== 0 && Math.abs(e.bid - e.tricks) >= 2);
+
   return {
     roundIndex,
     cardCount: round.cardCount,
@@ -479,6 +674,10 @@ export function roundEvents(game, roundIndex) {
     leaders,
     leadChanged,
     climbers,
+    streaks,
+    dealerOutcome,
+    bias,
+    wildMisses,
     allCorrect: wrongPlayers.length === 0,
     allWrong: correctPlayers.length === 0,
   };
