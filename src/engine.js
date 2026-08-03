@@ -271,6 +271,39 @@ export function moneyPayouts(game) {
 }
 
 /**
+ * Geld-Bilanz eines Spielerprofils über alle Spiele mit Einsatz hinweg, in
+ * denen das Profil mitgespielt hat (`players[].profileId === profileId`).
+ * Grundlage für die Geld-Übersicht in der Profil-Detailansicht.
+ *
+ * Zählt nur Spiele, deren Auszahlung feststeht: alle Runden fertig UND
+ * (bei `manual`) der Betrag tatsächlich eingetragen (`net != null`) — sonst
+ * würde ein offenes Spiel die Bilanz mit `0` statt "steht noch aus"
+ * verfälschen.
+ * @param {object[]} games alle Spiele (auch ohne Geld/ohne dieses Profil — werden gefiltert)
+ * @param {string} profileId
+ * @returns {{ gamesPlayed:number, totalStake:number, totalNet:number }}
+ */
+export function profileMoneyStats(games, profileId) {
+  let gamesPlayed = 0;
+  let totalStake = 0;
+  let totalNet = 0;
+  for (const game of games) {
+    if (!game.moneyEnabled) continue;
+    const player = game.players.find((p) => p.profileId === profileId);
+    if (!player) continue;
+    const allDone = game.rounds.length > 0 && game.rounds.every((r) => r.done);
+    if (!allDone) continue;
+    const payouts = moneyPayouts(game);
+    const entry = payouts?.find((p) => p.playerId === player.id);
+    if (!entry || entry.net == null) continue;
+    gamesPlayed += 1;
+    totalStake += game.stake || 0;
+    totalNet += entry.net;
+  }
+  return { gamesPlayed, totalStake, totalNet };
+}
+
+/**
  * Rangverlauf über die Runden: für jede abgeschlossene Runde der kumulierte
  * Punktestand und geteilte Rang jedes Spielers zu diesem Zeitpunkt.
  * Basis für den grafischen Platzierungs-/Punkteverlauf in der Zuschaueransicht.

@@ -597,6 +597,21 @@ tbody tr:nth-child(odd) td.sticky-right { background: #243044; }
   height: 0;
 }
 
+/* ---- Profil: Geld-Bilanz-Karte ---- */
+.money-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.money-stat {
+  background: var(--surface-2);
+  border-radius: 10px;
+  padding: 10px 12px;
+  text-align: center;
+}
+.money-stat-label { font-size: 0.75rem; color: var(--muted); }
+.money-stat-value { font-weight: 700; font-size: 1.05rem; margin-top: 4px; }
+
 /* ---- Feedback/Spenden Buttons: Vertikal stapeln ---- */
 .btn-row {
   display: flex;

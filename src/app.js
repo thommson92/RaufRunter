@@ -28,6 +28,7 @@ import {
 import {
   standings,
   moneyPayouts,
+  profileMoneyStats,
   allowedBids,
   biddingOrder,
   rotateToStart,
@@ -656,6 +657,37 @@ async function renderProfileList() {
 }
 
 /** Einzelnes Profil: Name & Profilbild ändern, löschen. */
+/**
+ * Geld-Bilanz-Karte in der Profil-Detailansicht (`engine.profileMoneyStats`).
+ * Nur sichtbar, wenn das Profil je an einem ausgewerteten Geldspiel
+ * teilgenommen hat — sonst würde eine leere "0€ bei 0 Spielen"-Karte nur
+ * Platz wegnehmen, ohne Information zu liefern.
+ * @param {object[]} games alle Spiele (ungefiltert)
+ * @param {string} profileId
+ */
+function profileMoneyCard(games, profileId) {
+  const stats = profileMoneyStats(games, profileId);
+  if (stats.gamesPlayed === 0) return '';
+  return `
+    <div class="card">
+      <h2 style="margin:0 0 10px">💰 Geld-Bilanz</h2>
+      <div class="money-stats-grid">
+        <div class="money-stat">
+          <div class="money-stat-label">Geldspiele</div>
+          <div class="money-stat-value">${stats.gamesPlayed}</div>
+        </div>
+        <div class="money-stat">
+          <div class="money-stat-label">Eingesetzt</div>
+          <div class="money-stat-value">${fmtEuro(stats.totalStake)}</div>
+        </div>
+        <div class="money-stat">
+          <div class="money-stat-label">Bilanz</div>
+          <div class="money-stat-value">${fmtMoney(stats.totalNet)}</div>
+        </div>
+      </div>
+    </div>`;
+}
+
 async function renderProfileEditor(id) {
   if (renderProfileGate()) return;
   const profile = profiles.byId(id);
@@ -697,6 +729,7 @@ async function renderProfileEditor(id) {
         Der Name wird in allen ${used.length === 1 ? '1 Spiel' : `${used.length} Spielen`} nachgezogen – auch rückwirkend.
       </p>
     </div>
+    ${profileMoneyCard(games, id)}
     <div class="card">
       <h2>Gespielt</h2>
       ${
