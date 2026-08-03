@@ -102,6 +102,51 @@ test('zoomAround bleibt innerhalb der Grenzen, auch bei extremem Faktor', () => 
   approx(zoomed.scale, coverScale(imgW, imgH, viewport) * MAX_ZOOM);
 });
 
+// Regression: zoomAround muss scale ERST clampen und x/y darauf verankern,
+// nicht umgekehrt — sonst rechnet die Anker-Formel mit einem Maßstab, der
+// gar nicht der am Ende angewendete ist, und das Bild springt sichtbar, sobald
+// eine Zoom-Geste über die Grenze hinausgeht (siehe Review-Fund).
+test('zoomAround: Fokuspunkt bleibt auch fest, wenn der Zoom dabei am oberen Limit gekappt wird', () => {
+  const imgW = 1000, imgH = 1000, viewport = 256;
+  const maxScale = coverScale(imgW, imgH, viewport) * MAX_ZOOM;
+  // Schon (fast) am Limit — ein weiterer Zoom-Schritt muss klemmen.
+  const view = clampView({ imgW, imgH, viewport, scale: maxScale * 0.95, x: 0, y: 0 });
+  const focusX = 90, focusY = 60;
+  const srcBefore = {
+    x: (focusX - view.x) / view.scale,
+    y: (focusY - view.y) / view.scale,
+  };
+  const zoomed = zoomAround({ imgW, imgH, viewport, view, factor: 1.5, focusX, focusY });
+  approx(zoomed.scale, maxScale); // wurde tatsächlich gekappt
+  const srcAfter = {
+    x: (focusX - zoomed.x) / zoomed.scale,
+    y: (focusY - zoomed.y) / zoomed.scale,
+  };
+  approx(srcAfter.x, srcBefore.x, 1e-6);
+  approx(srcAfter.y, srcBefore.y, 1e-6);
+});
+
+test('zoomAround: Fokuspunkt bleibt auch fest, wenn der Zoom dabei am unteren Limit (coverScale) klemmt', () => {
+  const imgW = 2000, imgH = 1000, viewport = 256; // Querformat: startet schon bei coverScale
+  const view = initialView({ imgW, imgH, viewport });
+  const focusX = 40, focusY = 200;
+  const srcBefore = {
+    x: (focusX - view.x) / view.scale,
+    y: (focusY - view.y) / view.scale,
+  };
+  const zoomed = zoomAround({ imgW, imgH, viewport, view, factor: 0.5, focusX, focusY });
+  approx(zoomed.scale, coverScale(imgW, imgH, viewport)); // unverändert, war schon am Minimum
+  const srcAfter = {
+    x: (focusX - zoomed.x) / zoomed.scale,
+    y: (focusY - zoomed.y) / zoomed.scale,
+  };
+  // x ist die freie Achse (Querformat hat dort Überschuss) — hier darf der
+  // Fokuspunkt nicht wegspringen. y ist bei coverScale exakt auf 0 fixiert
+  // (keine Freiheit), bleibt hier also trivialerweise ebenfalls stabil.
+  approx(srcAfter.x, srcBefore.x, 1e-6);
+  approx(srcAfter.y, srcBefore.y, 1e-6);
+});
+
 test('panBy verschiebt und clampt, ohne den Zoom zu ändern', () => {
   const imgW = 1000, imgH = 1000, viewport = 256;
   const view = initialView({ imgW, imgH, viewport });

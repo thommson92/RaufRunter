@@ -182,8 +182,22 @@ export function buildPhotoCropper(source, { onConfirm, onCancel }) {
     { passive: false },
   );
 
-  cancelBtn.addEventListener('click', () => onCancel());
-  confirmBtn.addEventListener('click', () => onConfirm(sourceRect({ ...geo, ...view })));
+  // Beide Buttons sofort sperren, sobald einer gedrückt wurde: onConfirm ist
+  // async (Firestore-Schreibvorgang) — ein zweiter, schneller Tap auf einem
+  // Touchscreen würde sonst denselben (oder den anderen) Handler erneut
+  // auslösen, während der erste noch läuft.
+  const lockButtons = () => {
+    cancelBtn.disabled = true;
+    confirmBtn.disabled = true;
+  };
+  cancelBtn.addEventListener('click', () => {
+    lockButtons();
+    onCancel();
+  });
+  confirmBtn.addEventListener('click', () => {
+    lockButtons();
+    onConfirm(sourceRect({ ...geo, ...view }));
+  });
 
   return root;
 }

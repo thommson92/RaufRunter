@@ -782,6 +782,7 @@ function renderPhotoCropView() {
         renderActiveView();
       },
       onConfirm: async (rect) => {
+        if (!ui.cropper) return; // bereits abgeschlossen/abgebrochen (Doppel-Tap etc.)
         const { profileId, source } = ui.cropper;
         let dataUrl;
         try {
@@ -2244,7 +2245,13 @@ async function onChange(e) {
     e.target.value = ''; // gleiche Datei erneut wählbar
     if (!file || !profiles.byId(profileId)) return;
     try {
-      const source = await loadPhotoSource(file);
+      const source = await loadPhotoSource(file); // Bilddekodierung dauert bei großen Fotos spürbar
+      // In der Zwischenzeit kann weggenavigiert worden sein (Zurück, anderes
+      // Profil geöffnet). Ohne diese Prüfung würde ui.cropper hier trotzdem
+      // gesetzt und poppt dann beim nächsten Besuch desselben Profils
+      // unerwartet als "vergessener" Zuschnitt wieder auf.
+      const route = currentRoute();
+      if (route.view !== 'profiles' || route.id !== profileId) return;
       ui.cropper = { profileId, source };
       renderActiveView();
     } catch (err) {

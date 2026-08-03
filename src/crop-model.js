@@ -79,11 +79,19 @@ export function sourceRect({ imgW, imgH, viewport, scale, x, y }) {
  * an derselben Stelle stehen bleibt. Ergebnis ist bereits geclampt.
  */
 export function zoomAround({ imgW, imgH, viewport, view, factor, focusX, focusY }) {
+  // Erst den Maßstab clampen und ERST DANACH x/y darauf verankern — sonst
+  // rechnet die Anker-Formel mit einem Maßstab, der gar nicht der ist, der
+  // am Ende tatsächlich angewendet wird (clampView clampt scale intern
+  // separat), und der Fokuspunkt springt sichtbar weg, sobald eine Zoom-Geste
+  // über MAX_ZOOM oder unter coverScale hinaus geht.
+  const min = coverScale(imgW, imgH, viewport);
+  const scale = Math.min(Math.max(view.scale * factor, min), min * MAX_ZOOM);
+
   // Bild-Pixel unter dem Fokuspunkt vor dem Zoom festhalten, danach so
-  // positionieren, dass er nach dem Zoom wieder unter demselben Punkt liegt.
+  // positionieren, dass er nach dem (bereits geclampten) Zoom wieder unter
+  // demselben Punkt liegt.
   const srcX = (focusX - view.x) / view.scale;
   const srcY = (focusY - view.y) / view.scale;
-  const scale = view.scale * factor;
   return clampView({
     imgW,
     imgH,
