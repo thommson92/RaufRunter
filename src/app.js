@@ -28,6 +28,7 @@ import {
 import {
   standings,
   moneyPayouts,
+  profileMoneyStats,
   allowedBids,
   biddingOrder,
   rotateToStart,
@@ -285,10 +286,11 @@ async function renderHome() {
           const date = g.createdAt
             ? new Date(g.createdAt).toLocaleDateString('de-DE')
             : null;
+          const moneyBadge = g.moneyEnabled ? '💰 ' : '';
           return `
             <button class="card list-item" data-action="open" data-id="${esc(g.id)}">
               <div class="meta">
-                <strong>${esc(g.name)}</strong><br/>
+                <strong>${moneyBadge}${esc(g.name)}</strong><br/>
                 <small>${date ? `${date} · ` : ''}${g.players.length} Spieler · Runde ${Math.min(done + 1, total)}/${total}${
             done === total ? ' · fertig' : ''
           }${lead && done ? ` · 🥇 ${esc(lead.name)}` : ''}</small>
@@ -377,9 +379,12 @@ function moneyCard(fields, playerCount) {
   const modeOptions = Object.entries(PAYOUT_MODE_LABELS)
     .map(([value, label]) => {
       const disabled = value === 'podium-cascade' && playerCount < 3;
-      return `<option value="${value}" ${fields.payoutMode === value ? 'selected' : ''} ${
-        disabled ? 'disabled' : ''
-      }>${esc(label)}${disabled ? ' (ab 3 Spielern)' : ''}</option>`;
+      const isSelected = fields.payoutMode === value;
+      return `
+        <label class="payout-chip ${isSelected ? 'selected' : ''} ${disabled ? 'disabled' : ''}">
+          <input type="radio" name="payoutMode" value="${value}" data-field="payoutMode" ${isSelected ? 'checked' : ''} ${disabled ? 'disabled' : ''} />
+          <span>${esc(label)}</span>
+        </label>`;
     })
     .join('');
   return `
@@ -401,7 +406,9 @@ function moneyCard(fields, playerCount) {
           <button type="button" class="stepper-btn" data-action="stake-inc" aria-label="Einsatz erhöhen">+</button>
         </div>
         <label>Ausschüttung</label>
-        <select data-field="payoutMode">${modeOptions}</select>
+        <div class="payout-chips">
+          ${modeOptions}
+        </div>
         <small class="muted">${esc(PAYOUT_MODE_HINTS[fields.payoutMode] || '')}</small>`
           : ''
       }
@@ -650,6 +657,37 @@ async function renderProfileList() {
 }
 
 /** Einzelnes Profil: Name & Profilbild ändern, löschen. */
+/**
+ * Geld-Bilanz-Karte in der Profil-Detailansicht (`engine.profileMoneyStats`).
+ * Nur sichtbar, wenn das Profil je an einem ausgewerteten Geldspiel
+ * teilgenommen hat — sonst würde eine leere "0€ bei 0 Spielen"-Karte nur
+ * Platz wegnehmen, ohne Information zu liefern.
+ * @param {object[]} games alle Spiele (ungefiltert)
+ * @param {string} profileId
+ */
+function profileMoneyCard(games, profileId) {
+  const stats = profileMoneyStats(games, profileId);
+  if (stats.gamesPlayed === 0) return '';
+  return `
+    <div class="card">
+      <h2 style="margin:0 0 10px">💰 Geld-Bilanz</h2>
+      <div class="money-stats-grid">
+        <div class="money-stat">
+          <div class="money-stat-label">Geldspiele</div>
+          <div class="money-stat-value">${stats.gamesPlayed}</div>
+        </div>
+        <div class="money-stat">
+          <div class="money-stat-label">Eingesetzt</div>
+          <div class="money-stat-value">${fmtEuro(stats.totalStake)}</div>
+        </div>
+        <div class="money-stat">
+          <div class="money-stat-label">Bilanz</div>
+          <div class="money-stat-value">${fmtMoney(stats.totalNet)}</div>
+        </div>
+      </div>
+    </div>`;
+}
+
 async function renderProfileEditor(id) {
   if (renderProfileGate()) return;
   const profile = profiles.byId(id);
@@ -691,6 +729,7 @@ async function renderProfileEditor(id) {
         Der Name wird in allen ${used.length === 1 ? '1 Spiel' : `${used.length} Spielen`} nachgezogen – auch rückwirkend.
       </p>
     </div>
+    ${profileMoneyCard(games, id)}
     <div class="card">
       <h2>Gespielt</h2>
       ${
@@ -2177,8 +2216,14 @@ async function onChange(e) {
     '[data-field="moneyEnabled"], [data-field="stake"], [data-field="payoutMode"]',
   );
   if (moneyField && currentRoute().view === 'game' && current.game) {
-    if (moneyField.dataset.field === 'moneyEnabled') current.game.moneyEnabled = moneyField.checked;
-    else if (moneyField.dataset.field === 'stake') current.game.stake = Math.max(0, toFiniteNumber(moneyField.value));
+    if (moneyField.dataset.field === 'moneyEnabled') {
+      current.game.moneyEnabled = moneyField.checked;
+      // Wenn Geldspiel aktiviert wird: stake & payoutMode mit Defaults initialisieren
+      if (moneyField.checked) {
+        if (!Number.isFinite(current.game.stake)) current.game.stake = 10;
+        if (!current.game.payoutMode) current.game.payoutMode = 'winner-takes-all';
+      }
+    } else if (moneyField.dataset.field === 'stake') current.game.stake = Math.max(0, toFiniteNumber(moneyField.value));
     else if (moneyField.dataset.field === 'payoutMode') current.game.payoutMode = moneyField.value;
     saveCurrent();
     return;

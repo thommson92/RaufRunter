@@ -240,7 +240,7 @@ export function moneyPayouts(game) {
       .sort((a, b) => a.rank - b.rank);
   }
 
-  const stake = game.stake || 0;
+  const stake = Number.isFinite(game.stake) ? game.stake : 0;
   const pot = stake * ranking.length;
   const multiples = PAYOUT_MULTIPLES[game.payoutMode] || {};
 
@@ -268,6 +268,39 @@ export function moneyPayouts(game) {
     results.push({ playerId: p.playerId, name: p.name, rank: 1, net: round2(winnerGrossEach - stake) });
   }
   return results.sort((a, b) => a.rank - b.rank);
+}
+
+/**
+ * Geld-Bilanz eines Spielerprofils über alle Spiele mit Einsatz hinweg, in
+ * denen das Profil mitgespielt hat (`players[].profileId === profileId`).
+ * Grundlage für die Geld-Übersicht in der Profil-Detailansicht.
+ *
+ * Zählt nur Spiele, deren Auszahlung feststeht: alle Runden fertig UND
+ * (bei `manual`) der Betrag tatsächlich eingetragen (`net != null`) — sonst
+ * würde ein offenes Spiel die Bilanz mit `0` statt "steht noch aus"
+ * verfälschen.
+ * @param {object[]} games alle Spiele (auch ohne Geld/ohne dieses Profil — werden gefiltert)
+ * @param {string} profileId
+ * @returns {{ gamesPlayed:number, totalStake:number, totalNet:number }}
+ */
+export function profileMoneyStats(games, profileId) {
+  let gamesPlayed = 0;
+  let totalStake = 0;
+  let totalNet = 0;
+  for (const game of games) {
+    if (!game.moneyEnabled) continue;
+    const player = game.players.find((p) => p.profileId === profileId);
+    if (!player) continue;
+    const allDone = game.rounds.length > 0 && game.rounds.every((r) => r.done);
+    if (!allDone) continue;
+    const payouts = moneyPayouts(game);
+    const entry = payouts?.find((p) => p.playerId === player.id);
+    if (!entry || entry.net == null) continue;
+    gamesPlayed += 1;
+    totalStake += game.stake || 0;
+    totalNet += entry.net;
+  }
+  return { gamesPlayed, totalStake, totalNet };
 }
 
 /**
