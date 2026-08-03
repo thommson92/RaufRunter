@@ -27,6 +27,12 @@ Mobile-first, läuft als statische Seite auf **GitHub Pages**.
 - Installierbar als **PWA** („Zum Startbildschirm"), Oberfläche offline-fähig, eigenes
   Icon auch als maskable Variante für Android.
 - Spiel löschen ist durch eine Passwortabfrage geschützt.
+- **Geldeinsatz & Auszahlung (optional):** pro Spiel festhalten, ob um Geld gespielt wird,
+  wie hoch der Einsatz je Spieler ist und nach welchem Modus der Topf ausgeschüttet wird
+  (Sieger bekommt alles / Zweiter bekommt Einsatz zurück / Dritter Einsatz zurück & Zweiter
+  doppelten Einsatz / manuelle Eingabe). Nach der letzten Runde erscheint in Schreiber- und
+  Zuschauer-Ansicht eine Auszahlungs-Übersicht, wer wie viel gewonnen/verloren hat. Auch
+  nachträglich für bereits laufende oder abgeschlossene Spiele aktivierbar.
 - Spendenlink zur Unterstützung des Entwicklers auf der Startseite.
 
 **Live:** <https://thommson92.github.io/RaufRunter/>
@@ -58,4 +64,6 @@ Spielerprofile. App ist live.
 UX-Feinschliff aus echtem Gebrauch: Standard-Kartenzahl 10, Kommentar-Grammatik (Plural,
 richtungsabhängiges „nur"), CVD-sichere Chart-Palette, Sortierung nach Erstelldatum,
 Spendenlink, korrigierte App-Icons inkl. maskable Variante, mobile Tabellensteuerung.
+Geldeinsatz & Ausschüttung (M17): optionaler Einsatz je Spiel mit vier Ausschüttungsmodi,
+Auszahlungs-Übersicht am Spielende, nachträglich für jedes Spiel aktivier-/änderbar.
 Mögliche Nächstes: echter Zwei-Geräte-Test.

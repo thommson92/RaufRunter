@@ -33,6 +33,10 @@ function uid() {
  *   Spieler eingeschränkt). Wenn false darf die Ansage-Summe aufgehen.
  * @param {boolean} [upOnly=false] Wenn true wird nur 1 → max gespielt,
  *   sonst 1 → max → 1 (rauf und runter).
+ * @param {boolean} [moneyEnabled=false] Wird um Geld gespielt?
+ * @param {number} [stake=0] Einsatz pro Spieler (€, fürs ganze Spiel, nicht pro Runde).
+ * @param {string} [payoutMode='winner-takes-all'] Ausschüttungsmodus des Geldtopfs
+ *   ('winner-takes-all' | 'runner-up-refund' | 'podium-cascade' | 'manual').
  */
 export function createGame({
   name,
@@ -40,6 +44,9 @@ export function createGame({
   profiles,
   restrictLastBid = true,
   upOnly = false,
+  moneyEnabled = false,
+  stake = 0,
+  payoutMode = 'winner-takes-all',
 }) {
   const players = profiles.map((profile, i) => ({
     id: uid(),
@@ -61,6 +68,10 @@ export function createGame({
     maxCards,
     upOnly,
     restrictLastBid,
+    moneyEnabled,
+    stake,
+    payoutMode,
+    manualPayouts: {},
     players,
     rounds,
     currentRound: 0,

@@ -183,6 +183,94 @@ export function standings(game) {
 }
 
 /**
+ * Feste Auszahlung je Rang als Vielfaches des Einsatzes für die Preset-
+ * Ausschüttungsmodi. Rang 1 kommt bewusst NICHT vor — er bekommt immer den
+ * nicht anderweitig vergebenen Rest des Topfs (siehe moneyPayouts).
+ */
+const PAYOUT_MULTIPLES = {
+  'winner-takes-all': {},
+  'runner-up-refund': { 2: 1 },
+  'podium-cascade': { 2: 2, 3: 1 },
+};
+
+/**
+ * Geldauszahlung je Spieler am Ende eines Spiels mit Einsatz. `null`, wenn
+ * für das Spiel kein Geld läuft (`moneyEnabled` falsy).
+ *
+ * Preset-Modi (`winner-takes-all`/`runner-up-refund`/`podium-cascade`) zahlen
+ * den Rängen aus `PAYOUT_MULTIPLES` ein festes Vielfaches des Einsatzes
+ * zurück; alles, was so nicht vergeben wird, geht **gesammelt** an Rang 1
+ * (bei Gleichstand gleichmäßig gesplittet).
+ *
+ * Geteilte Ränge bei einer Gruppe von k Spielern: die Gruppe belegt fiktiv
+ * die Plätze `rank .. rank+k-1` (geteilter Rang lässt die Folgeplätze aus,
+ * siehe `standings()`/`withSharedRanks` — bei zwei Erstplatzierten gibt es
+ * z. B. keinen Platz 2). Alle für diese Plätze vorgesehenen festen
+ * Auszahlungen werden zusammengelegt und gleichmäßig auf die Gruppe verteilt
+ * — nicht jedem Gruppenmitglied einzeln der volle Betrag. Werden z. B. bei
+ * `podium-cascade` zwei Spieler gemeinsam Zweiter, teilen sie sich Platz-2-
+ * UND Platz-3-Auszahlung (der Dritte fällt ja aus); werden bei
+ * `runner-up-refund` drei Spieler gemeinsam Zweiter, teilen sie sich den
+ * einen dafür vorgesehenen Einsatz-Rückerstattungsbetrag. Das behandelt auch
+ * Rang 1 ohne Sonderfall: teilen sich zwei Spieler Rang 1, existiert kein
+ * Rang 2 — die dafür vorgesehene Auszahlung fließt dann einfach nicht ab und
+ * bleibt Teil des Rests für Rang 1.
+ * `manual` reicht `game.manualPayouts[playerId]` unverändert als Netto-Betrag
+ * durch (`null` = noch nicht eingetragen).
+ *
+ * Beträge werden auf den Cent gerundet; bei einem Split unter ungerader
+ * Spielerzahl kann die Summe aller `net` dadurch um bis zu 1 Cent von 0
+ * abweichen — für einen Freundeskreis-Rechner unkritisch.
+ * @param {object} game
+ * @returns {null | Array<{playerId:string, name:string, rank:number, net:number|null}>}
+ */
+export function moneyPayouts(game) {
+  if (!game.moneyEnabled) return null;
+  const { ranking } = standings(game);
+  const round2 = (n) => Math.round(n * 100) / 100;
+
+  if (game.payoutMode === 'manual') {
+    return ranking
+      .map((r) => ({
+        playerId: r.playerId,
+        name: r.name,
+        rank: r.rank,
+        net: game.manualPayouts?.[r.playerId] ?? null,
+      }))
+      .sort((a, b) => a.rank - b.rank);
+  }
+
+  const stake = game.stake || 0;
+  const pot = stake * ranking.length;
+  const multiples = PAYOUT_MULTIPLES[game.payoutMode] || {};
+
+  const byRank = {};
+  for (const r of ranking) (byRank[r.rank] ??= []).push(r);
+
+  const results = [];
+  let remainder = pot;
+  for (const [rankStr, players] of Object.entries(byRank)) {
+    const rank = Number(rankStr);
+    if (rank === 1) continue; // bekommt am Ende den Rest
+    let groupTotal = 0;
+    for (let slot = rank; slot < rank + players.length; slot++) {
+      groupTotal += stake * (multiples[slot] ?? 0);
+    }
+    remainder -= groupTotal;
+    const grossEach = groupTotal / players.length;
+    for (const p of players) {
+      results.push({ playerId: p.playerId, name: p.name, rank, net: round2(grossEach - stake) });
+    }
+  }
+  const winners = byRank[1] || [];
+  const winnerGrossEach = winners.length ? remainder / winners.length : 0;
+  for (const p of winners) {
+    results.push({ playerId: p.playerId, name: p.name, rank: 1, net: round2(winnerGrossEach - stake) });
+  }
+  return results.sort((a, b) => a.rank - b.rank);
+}
+
+/**
  * Rangverlauf über die Runden: für jede abgeschlossene Runde der kumulierte
  * Punktestand und geteilte Rang jedes Spielers zu diesem Zeitpunkt.
  * Basis für den grafischen Platzierungs-/Punkteverlauf in der Zuschaueransicht.

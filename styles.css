@@ -180,6 +180,21 @@ h2 + .section-label { margin-top: 12px; }
 .player-row .picker { flex: 1; min-width: 0; }
 .player-profile-link { flex: 1; min-width: 0; text-align: left; justify-content: flex-start; }
 
+/* ---- Auszahlungs-Übersicht (Geldeinsatz) ---- */
+.payout-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.payout-row:last-child { border-bottom: none; }
+.payout-row .avatar-name { flex: 1; min-width: 0; }
+.payout-rank { width: 26px; text-align: center; flex: 0 0 auto; }
+.payout-amount { flex: 0 0 auto; font-weight: 700; text-align: right; }
+.payout-empty { font-weight: 400; font-size: 0.8rem; }
+.payout-input { width: 90px; text-align: right; }
+
 /* ---- Profilbilder ---- */
 .avatar {
   display: inline-flex;

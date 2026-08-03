@@ -10,6 +10,7 @@ import {
   biddingOrder,
   rotateToStart,
   standings,
+  moneyPayouts,
   rankProgression,
   bidTrickTotals,
   accuracyStats,
@@ -532,4 +533,194 @@ test('randomTrump: gültige Farbe', () => {
   for (let i = 0; i < 50; i++) {
     assert.ok(TRUMP_COLORS.includes(randomTrump()));
   }
+});
+
+// ---------- moneyPayouts (Geldeinsatz & Ausschüttung) ----------
+
+/**
+ * Punktzahl S über die Punkteformel korrekt (10+tricks) oder falsch
+ * (-10+tricks) erzeugen — egal ob realistisch, standings() prüft cardCount
+ * nicht gegen die Summe der Stiche.
+ */
+function bidForScore(score) {
+  if (score >= 10) return { bid: score - 10, tricks: score - 10 };
+  return { bid: score + 9, tricks: score + 10 }; // bewusst falsch (bid ≠ tricks)
+}
+
+/** Spiel mit vier klar getrennten Rängen: a=30 (1.), b=20 (2.), c=10 (3.), d=-10 (4.). */
+function fourRankGame(moneyFields) {
+  const scores = { a: 30, b: 20, c: 10, d: -10 };
+  const bids = {};
+  const tricks = {};
+  for (const [id, s] of Object.entries(scores)) {
+    const r = bidForScore(s);
+    bids[id] = r.bid;
+    tricks[id] = r.tricks;
+  }
+  return {
+    players: [
+      { id: 'a', name: 'Anna' },
+      { id: 'b', name: 'Ben' },
+      { id: 'c', name: 'Cara' },
+      { id: 'd', name: 'Dirk' },
+    ],
+    rounds: [{ cardCount: 30, done: true, bids, tricks }],
+    ...moneyFields,
+  };
+}
+
+/** Spiel mit Gleichstand auf Platz 1: a & b teilen sich Rang 1, c ist Rang 3. */
+function tiedTopGame(moneyFields) {
+  return {
+    players: [
+      { id: 'a', name: 'Anna' },
+      { id: 'b', name: 'Ben' },
+      { id: 'c', name: 'Cara' },
+    ],
+    rounds: [
+      {
+        cardCount: 20,
+        done: true,
+        bids: { a: 10, b: 10, c: 0 },
+        tricks: { a: 10, b: 10, c: 10 }, // c falsch angesagt ⇒ -10+10=0
+      },
+    ],
+    ...moneyFields,
+  };
+}
+
+test('moneyPayouts: kein Geldspiel ⇒ null', () => {
+  assert.equal(moneyPayouts(fourRankGame({ moneyEnabled: false, stake: 5 })), null);
+  assert.equal(moneyPayouts(fourRankGame({})), null); // moneyEnabled fehlt ⇒ aus
+});
+
+test('moneyPayouts: winner-takes-all', () => {
+  const game = fourRankGame({ moneyEnabled: true, stake: 5, payoutMode: 'winner-takes-all' });
+  const byId = Object.fromEntries(moneyPayouts(game).map((p) => [p.playerId, p]));
+  assert.equal(byId.a.rank, 1);
+  assert.equal(byId.a.net, 15); // Pot 20 − eigener Einsatz 5
+  assert.equal(byId.b.net, -5);
+  assert.equal(byId.c.net, -5);
+  assert.equal(byId.d.net, -5);
+  const sum = Object.values(byId).reduce((s, p) => s + p.net, 0);
+  assert.equal(sum, 0);
+});
+
+test('moneyPayouts: runner-up-refund', () => {
+  const game = fourRankGame({ moneyEnabled: true, stake: 5, payoutMode: 'runner-up-refund' });
+  const byId = Object.fromEntries(moneyPayouts(game).map((p) => [p.playerId, p]));
+  assert.equal(byId.a.net, 10); // Rest des Topfs nach Rückzahlung an Rang 2
+  assert.equal(byId.b.net, 0); // Einsatz zurück
+  assert.equal(byId.c.net, -5);
+  assert.equal(byId.d.net, -5);
+});
+
+test('moneyPayouts: podium-cascade', () => {
+  const game = fourRankGame({ moneyEnabled: true, stake: 5, payoutMode: 'podium-cascade' });
+  const byId = Object.fromEntries(moneyPayouts(game).map((p) => [p.playerId, p]));
+  assert.equal(byId.a.net, 0); // Rest, nachdem 2. und 3. schon viel bekommen haben
+  assert.equal(byId.b.net, 5); // doppelter Einsatz zurück ⇒ +1 Einsatz Gewinn
+  assert.equal(byId.c.net, 0); // Einsatz zurück
+  assert.equal(byId.d.net, -5);
+  const sum = Object.values(byId).reduce((s, p) => s + p.net, 0);
+  assert.equal(sum, 0);
+});
+
+test('moneyPayouts: Gleichstand auf Platz 1 ⇒ Pot gesplittet, „Rang 2"-Regel bleibt inert', () => {
+  const wta = tiedTopGame({ moneyEnabled: true, stake: 6, payoutMode: 'winner-takes-all' });
+  const byIdWta = Object.fromEntries(moneyPayouts(wta).map((p) => [p.playerId, p]));
+  assert.equal(byIdWta.a.rank, 1);
+  assert.equal(byIdWta.b.rank, 1);
+  assert.equal(byIdWta.a.net, 3); // (Pot 18 / 2 Sieger) − Einsatz 6
+  assert.equal(byIdWta.b.net, 3);
+  assert.equal(byIdWta.c.net, -6);
+
+  // Kein Spieler hat Rang 2 (a & b teilen Rang 1, c ist Rang 3) ⇒ die
+  // "2. bekommt Einsatz zurück"-Regel greift bei niemandem, der Rest bleibt
+  // komplett bei Rang 1 — exakt wie bei winner-takes-all.
+  const refund = tiedTopGame({ moneyEnabled: true, stake: 6, payoutMode: 'runner-up-refund' });
+  const byIdRefund = Object.fromEntries(moneyPayouts(refund).map((p) => [p.playerId, p]));
+  assert.equal(byIdRefund.a.net, 3);
+  assert.equal(byIdRefund.b.net, 3);
+  assert.equal(byIdRefund.c.net, -6);
+});
+
+test('moneyPayouts: podium-cascade, Gleichstand auf Platz 2 ⇒ Platz-2- UND Platz-3-Auszahlung zusammengelegt und geteilt', () => {
+  // a gewinnt klar, b & c teilen sich Platz 2 (⇒ es gibt keinen Platz 3), d ist Letzter.
+  const game = {
+    players: [
+      { id: 'a', name: 'Anna' },
+      { id: 'b', name: 'Ben' },
+      { id: 'c', name: 'Cara' },
+      { id: 'd', name: 'Dirk' },
+    ],
+    rounds: [
+      {
+        cardCount: 30,
+        done: true,
+        bids: { a: 20, b: 10, c: 10, d: 9 },
+        tricks: { a: 20, b: 10, c: 10, d: 10 }, // d falsch angesagt ⇒ -10+10=0
+      },
+    ],
+    moneyEnabled: true,
+    stake: 10,
+    payoutMode: 'podium-cascade',
+  };
+  const byId = Object.fromEntries(moneyPayouts(game).map((p) => [p.playerId, p]));
+  assert.equal(byId.b.rank, 2);
+  assert.equal(byId.c.rank, 2);
+  // Platz 2 (2×Einsatz=20€) + Platz 3 (1×Einsatz=10€) zusammen 30€, auf beide
+  // geteilt ⇒ 15€ Auszahlung / 5€ Netto-Gewinn pro Person (Einsatz 10€).
+  assert.equal(byId.b.net, 5);
+  assert.equal(byId.c.net, 5);
+  assert.equal(byId.d.net, -10); // Letzter, kein Platz belegt eine Auszahlung für ihn
+  assert.equal(byId.a.net, 0); // Rest: Pot 40€ − 30€ (an b+c) − 0€ (d) − Einsatz
+  const sum = Object.values(byId).reduce((s, p) => s + p.net, 0);
+  assert.equal(sum, 0);
+});
+
+test('moneyPayouts: runner-up-refund, drei teilen sich Platz 2 ⇒ nur EIN Rückerstattungsbetrag wird gedrittelt', () => {
+  // a gewinnt klar, b/c/d teilen sich Platz 2 zu dritt.
+  const game = {
+    players: [
+      { id: 'a', name: 'Anna' },
+      { id: 'b', name: 'Ben' },
+      { id: 'c', name: 'Cara' },
+      { id: 'd', name: 'Dirk' },
+    ],
+    rounds: [
+      {
+        cardCount: 30,
+        done: true,
+        bids: { a: 20, b: 0, c: 0, d: 0 },
+        tricks: { a: 20, b: 10, c: 10, d: 10 }, // b/c/d falsch angesagt ⇒ -10+10=0, alle gleich
+      },
+    ],
+    moneyEnabled: true,
+    stake: 10,
+    payoutMode: 'runner-up-refund',
+  };
+  const byId = Object.fromEntries(moneyPayouts(game).map((p) => [p.playerId, p]));
+  assert.equal(byId.b.rank, 2);
+  assert.equal(byId.c.rank, 2);
+  assert.equal(byId.d.rank, 2);
+  // Nur EIN Einsatz (10€) ist als Rückerstattung für Platz 2 vorgesehen, nicht
+  // dreimal — gedrittelt macht das 3,33€ Auszahlung / −6,67€ Netto pro Person.
+  assert.equal(byId.b.net, -6.67);
+  assert.equal(byId.c.net, -6.67);
+  assert.equal(byId.d.net, -6.67);
+  assert.equal(byId.a.net, 20); // Rest: Pot 40€ − 10€ (Platz-2-Topf) − Einsatz
+});
+
+test('moneyPayouts: manual reicht eingetragene Werte durch, fehlende ⇒ null', () => {
+  const game = fourRankGame({
+    moneyEnabled: true,
+    payoutMode: 'manual',
+    manualPayouts: { a: 12.5, b: -4 },
+  });
+  const byId = Object.fromEntries(moneyPayouts(game).map((p) => [p.playerId, p]));
+  assert.equal(byId.a.net, 12.5);
+  assert.equal(byId.b.net, -4);
+  assert.equal(byId.c.net, null);
+  assert.equal(byId.d.net, null);
 });
