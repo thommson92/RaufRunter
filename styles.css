@@ -333,6 +333,15 @@ h2 + .section-label { margin-top: 12px; }
 
 .entry-player { font-weight: 600; margin: 14px 0 2px; }
 .entry-sub { font-size: 0.8rem; color: var(--muted); }
+/* In der Auswertung (Stiche eintragen) haben Spielernamen unterschiedliche
+   Länge — "angesagt: X" hing dadurch im normalen Textfluss an wechselnden
+   Positionen und bildete keine lesbare Spalte. Als Flex-Row rechtsbündig
+   ausgerichtet (wie schon bei .dealer-line), der Name bleibt schrumpfbar. */
+.entry-player-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.entry-player-row .avatar-name { min-width: 0; }
+.entry-player-row .entry-sub { flex: 0 0 auto; white-space: nowrap; font-weight: 400; }
 
 /* ---- Zuschauer: Spielerleiste (Avatare, Platzierung, Punktestand) ---- */
 /* Grid statt Flex+space-evenly: bei wenigen Spielern (2-4) auf einer breiten
@@ -343,24 +352,29 @@ h2 + .section-label { margin-top: 12px; }
    bleibt an denselben Spaltenpositionen wie die Zeile(n) darüber. */
 .player-strip {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  /* 95px ist die größte Spaltenbreite, bei der auf dem schmalsten unterstützten
+     Gerät (iPhone SE, 375px Breite abzüglich .app- und .card-Padding = 311px)
+     noch 3 Spalten in eine Zeile passen (3×95 + 2×12 Gap = 309px). Größer
+     würde das Podest (Top 3) dort auf 2 Spalten umbrechen. */
+  grid-template-columns: repeat(auto-fit, minmax(95px, 1fr));
   justify-items: center;
   gap: 14px 12px;
 }
 .player-strip-item {
-  display: flex; flex-direction: column; align-items: center; gap: 4px; width: 92px;
+  display: flex; flex-direction: column; align-items: center; gap: 4px; width: 95px;
 }
-/* Rang-Emoji und Name als eigene Flex-Kinder: sonst kann der Zeilenumbruch
-   (bei knappem Platz + langem Namen) die Medaille vom Namen trennen und auf
-   eine eigene Zeile werfen ("🥇" allein oben, "Schuulsen" darunter). So bricht
-   höchstens der Name selbst um, die Medaille bleibt immer auf Zeile 1 fix. */
+/* Rang-Emoji/-Zahl immer auf eigener Zeile über dem Namen (statt daneben):
+   das gibt dem Namen die volle Spaltenbreite statt sie sich mit der Medaille
+   teilen zu müssen — zusammen mit der breiteren Spalte und dem etwas
+   kleineren Schriftgrad passen dadurch auch längere Namen ("Schuulsen") auf
+   eine Zeile. line-clamp bleibt als Fallback für sehr lange Namen. */
 .player-strip-name-row {
-  display: flex; align-items: baseline; justify-content: center; gap: 3px; max-width: 100%;
+  display: flex; flex-direction: column; align-items: center; gap: 1px; max-width: 100%;
 }
 .player-strip-rank { flex: 0 0 auto; }
 .player-strip-name {
-  font-size: 0.8rem; font-weight: 600; min-width: 0; max-width: 100%;
-  text-align: center; overflow-wrap: break-word;
+  font-size: 0.74rem; font-weight: 600; min-width: 0; max-width: 100%;
+  text-align: center; overflow-wrap: break-word; hyphens: auto;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .player-strip-score { font-size: 0.85rem; font-weight: 700; }
@@ -494,6 +508,7 @@ tbody tr:nth-child(odd) td.sticky-right { background: #243044; }
   gap: 10px;
 }
 .stat-tile {
+  position: relative;
   background: var(--surface-2);
   border-radius: 10px;
   padding: 10px 12px;
@@ -502,6 +517,19 @@ tbody tr:nth-child(odd) td.sticky-right { background: #243044; }
 .stat-tile-label { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
 .stat-tile-value { font-weight: 700; font-size: 1rem; margin-top: 2px; }
 .stat-tile-sub { font-size: 0.78rem; color: var(--muted); margin-top: 1px; }
+/* Info-Icon nur auf Kacheln zu normierten Indizes (Ansage-/Stich-Index,
+   Aufschneider) — die Zahl dort ("1,6") liest sich sonst leicht als
+   absoluter Stichwert statt als Verhältnis zum fairen Anteil. */
+.stat-tile-hint-btn {
+  position: absolute; top: 6px; right: 6px;
+  width: 22px; height: 22px; min-height: 0; padding: 0;
+  display: grid; place-items: center;
+  border-radius: 50%; background: transparent; color: var(--muted); font-size: 0.85rem;
+}
+.stat-tile-hint-btn:hover, .stat-tile-hint-btn:focus-visible { background: var(--surface); color: var(--text); }
+.stat-tile-hint {
+  margin: 6px 0 0; font-size: 0.72rem; color: var(--muted); line-height: 1.35;
+}
 
 /* ---- Statistik: Charts ---- */
 .chart { position: relative; }
