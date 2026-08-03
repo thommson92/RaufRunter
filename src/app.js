@@ -94,6 +94,7 @@ const ui = {
   admin: null, // { games, mergeFrom, mergeTo } im Admin-Bereich
   stats: null, // { games } in der Bestenliste (#/stats), einmal geladen & zwischengespeichert
   statsMetric: 'winRate', // aktuell gewählte Kennzahl in der Ranglisten-Ansicht von #/stats
+  openStatHint: null, // welche Hall-of-Fame-Kachel (STATS_METRIC_HINTS-Key) ihre Erklärung zeigt
 };
 
 /**
@@ -1007,12 +1008,20 @@ const STATS_METRICS = [
   },
 ];
 
-/** Kurzer Erklärtext unter den beiden normierten Index-Ranglisten. */
+/**
+ * Kurzer Erklärtext für die normierten Indizes — sowohl unter den beiden
+ * Index-Ranglisten als auch (per Info-Icon) auf den zugehörigen Hall-of-Fame-
+ * Kacheln. Ohne diesen Hinweis liest sich z. B. "1,6" leicht als "sagt im
+ * Schnitt 1,6 Stiche an", dabei ist 1,00 der faire Anteil (normiert), kein
+ * absoluter Stichwert.
+ */
 const STATS_METRIC_HINTS = {
   bidIndex:
     '1,00 = genau der faire Anteil an den Stichen dieser Runde (Kartenzahl ÷ Mitspieler). Über 1 = sagt im Schnitt mehr an, als rechnerisch auf die Person entfiele.',
   trickIndex:
     '1,00 = genau der faire Anteil an den Stichen dieser Runde. Über 1 = macht im Schnitt mehr Stiche, als rechnerisch auf die Person entfiele.',
+  overbid:
+    'Differenz aus Ansage-Index und Stich-Index: wie viel mehr (normiert) angesagt als tatsächlich gemacht wurde. Über 0 = sagt im Schnitt mehr an, als am Ende an Stichen dabei herauskommt.',
 };
 
 /**
@@ -1031,13 +1040,13 @@ function statsHallOfFame(entries) {
   const money = (v) => `${v > 0 ? '+' : ''}${fmtEuro(v)}`;
 
   const tiles = [];
-  const add = (icon, label, get, format, { direction = 'best' } = {}) => {
+  const add = (icon, label, get, format, { direction = 'best', hintKey } = {}) => {
     const values = entries
       .map((e) => ({ name: e.profile.name, value: get(e.stats) }))
       .filter((x) => x.value != null);
     const picked = extremeGroup(values)[direction];
     if (!picked) return;
-    tiles.push(statTile(icon, label, namesList(picked.names), format(picked.value)));
+    tiles.push(statTile(icon, label, namesList(picked.names), format(picked.value), hintKey));
   };
 
   add('🏆', 'Meiste Siege', (s) => s.wins, (v) => `${v} Siege`);
@@ -1061,9 +1070,9 @@ function statsHallOfFame(entries) {
 
   add('✋', 'Meiste Stiche angesagt', (s) => (s.rounds > 0 ? s.bidSum : null), (v) => `${v} insgesamt`);
   add('🃏', 'Meiste Stiche gemacht', (s) => (s.rounds > 0 ? s.trickSum : null), (v) => `${v} insgesamt`);
-  add('😤', 'Mutigste Ansage', (s) => s.bidIndex, idx);
-  add('🥷', 'Erfolgreichster Stecher', (s) => s.trickIndex, idx);
-  add('🎈', 'Größter Aufschneider', (s) => s.overbid, idx);
+  add('😤', 'Mutigste Ansage', (s) => s.bidIndex, idx, { hintKey: 'bidIndex' });
+  add('🥷', 'Erfolgreichster Stecher', (s) => s.trickIndex, idx, { hintKey: 'trickIndex' });
+  add('🎈', 'Größter Aufschneider', (s) => s.overbid, idx, { hintKey: 'overbid' });
   add('🔥', 'Längste Treffer-Serie', (s) => (s.bestStreak > 0 ? s.bestStreak : null), (v) => `${v} Runden in Folge`);
   add('💰', 'Beste Geld-Bilanz', (s) => (s.money.gamesPlayed > 0 ? s.money.totalNet : null), money);
 
@@ -1348,7 +1357,7 @@ function entryPanel(game) {
           );
         }
         return `
-          <div class="entry-player">${avatarNameHtml(profileOf(p), p.name)}
+          <div class="entry-player entry-player-row">${avatarNameHtml(profileOf(p), p.name)}
             <span class="entry-sub">angesagt: ${round.bids[p.id]}</span></div>
           <div class="bid-grid">${pills.join('')}</div>`;
       })
@@ -1816,13 +1825,27 @@ function extremeGroup(entries) {
   };
 }
 
-function statTile(icon, label, value, sub) {
+/**
+ * `hintKey` ist optional — nur Kacheln zu normierten Indizes (Ansage-/Stich-
+ * Index, Aufschneider-Wert) bekommen ein Info-Icon, weil deren Zahl sonst
+ * leicht als absoluter Stichwert missverstanden wird (siehe STATS_METRIC_HINTS).
+ */
+function statTile(icon, label, value, sub, hintKey) {
+  const hint = hintKey && STATS_METRIC_HINTS[hintKey];
+  const hintBtn = hint
+    ? `<button type="button" class="stat-tile-hint-btn" data-action="toggle-stat-hint"
+        data-v="${esc(hintKey)}" aria-label="Erklärung zu ${esc(label)}">ⓘ</button>`
+    : '';
+  const hintBox =
+    hint && ui.openStatHint === hintKey ? `<p class="stat-tile-hint">${esc(hint)}</p>` : '';
   return `
     <div class="stat-tile">
+      ${hintBtn}
       <div class="stat-tile-icon">${icon}</div>
       <div class="stat-tile-label">${esc(label)}</div>
       <div class="stat-tile-value">${value}</div>
       <div class="stat-tile-sub">${esc(sub)}</div>
+      ${hintBox}
     </div>`;
 }
 
@@ -2280,6 +2303,10 @@ async function onClick(e) {
       break;
     case 'set-stats-metric':
       ui.statsMetric = v;
+      renderActiveView();
+      break;
+    case 'toggle-stat-hint':
+      ui.openStatHint = ui.openStatHint === v ? null : v;
       renderActiveView();
       break;
     case 'view':
