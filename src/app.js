@@ -21,10 +21,12 @@ import {
 import {
   avatarHtml,
   avatarNameHtml,
-  photoToDataUrl,
+  loadPhotoSource,
+  cropToDataUrl,
   pickerHtml,
   pickerOptionsHtml,
 } from './profile-ui.js';
+import { buildPhotoCropper } from './photo-crop.js';
 import {
   standings,
   moneyPayouts,
@@ -84,6 +86,7 @@ const ui = {
   tableSort: 'seat',  // Punktestand-Sortierung: 'seat' (Sitzreihe) | 'rank' (Punkte)
   tableTranspose: false, // Achsen tauschen: false = Spieler-Zeilen, true = Runden-Zeilen
   lottery: null, // { profiles, winner } während der Geber-Auslosung beim Anlegen (#/new)
+  cropper: null, // { profileId, source } während des Foto-Zuschnitts im Profil-Editor
   homeVisibleCount: HOME_PAGE_SIZE, // wie viele Spiele auf der Startseite sichtbar sind
   pickerQuery: {}, // Sucheingabe je Combobox (Schlüssel = data-i)
   adminUnlocked: false, // Passwort im Admin-Bereich eingegeben (nur für diese Sitzung)
@@ -205,6 +208,10 @@ function route() {
   const { view, id } = currentRoute();
   if (['game', 'players', 'view'].includes(view) && id) ensureSubscribed(id);
   else clearSubscription();
+  // Weggenavigiert, während der Foto-Zuschnitt offen war (z.B. Browser-Zurück)
+  // → verwaisten Zustand verwerfen, sonst poppt er beim nächsten Aufruf
+  // desselben Profils wieder auf.
+  if (ui.cropper && (view !== 'profiles' || id !== ui.cropper.profileId)) ui.cropper = null;
   renderActiveView();
 }
 
@@ -689,6 +696,7 @@ function profileMoneyCard(games, profileId) {
 }
 
 async function renderProfileEditor(id) {
+  if (ui.cropper && ui.cropper.profileId === id) return renderPhotoCropView();
   if (renderProfileGate()) return;
   const profile = profiles.byId(id);
   if (!profile) {
@@ -749,6 +757,47 @@ async function renderProfileEditor(id) {
       Profil löschen
     </button>
   `;
+}
+
+/**
+ * Zwischenschritt beim Ändern des Profilfotos: Ausschnitt & Zoom wählen,
+ * bevor überhaupt etwas gespeichert wird. Analog zu renderDealerLottery() —
+ * eigener Bildschirm statt Modal, weil das App sonst kein Overlay-Konzept hat.
+ */
+function renderPhotoCropView() {
+  appEl.innerHTML = `
+    <div class="topbar">
+      <button class="icon-btn btn-ghost" data-action="crop-cancel">‹</button>
+      <h1>Bildausschnitt wählen</h1>
+    </div>
+    <div class="card center">
+      <p class="muted" style="margin-top:0">Ziehen zum Verschieben – mit zwei Fingern, dem Mausrad oder dem Regler zoomen.</p>
+      <div id="crop-mount"></div>
+    </div>
+  `;
+  document.getElementById('crop-mount').appendChild(
+    buildPhotoCropper(ui.cropper.source, {
+      onCancel: () => {
+        ui.cropper = null;
+        renderActiveView();
+      },
+      onConfirm: async (rect) => {
+        const { profileId, source } = ui.cropper;
+        let dataUrl;
+        try {
+          dataUrl = cropToDataUrl(source, rect);
+        } catch (err) {
+          console.error(err);
+          alert(err.message || 'Das Bild konnte nicht verarbeitet werden.');
+          return; // Zuschnitt bleibt offen, damit ein anderer Ausschnitt versucht werden kann.
+        }
+        ui.cropper = null;
+        const profile = profiles.byId(profileId);
+        if (profile) await setAvatar(profile, { type: 'photo', dataUrl });
+        else renderActiveView();
+      },
+    }),
+  );
 }
 
 /**
@@ -2064,6 +2113,11 @@ async function onClick(e) {
       renderNew();
       break;
 
+    case 'crop-cancel':
+      ui.cropper = null;
+      renderActiveView();
+      break;
+
     case 'lottery-continue': {
       if (!ui.lottery || ui.lottery.winner == null) break;
       const ordered = rotateToStart(ui.lottery.profiles, ui.lottery.winner);
@@ -2182,18 +2236,20 @@ async function onChange(e) {
     return;
   }
 
-  // Foto für ein Profilbild gewählt
+  // Foto für ein Profilbild gewählt → erst zuschneiden lassen, dann speichern
+  // (siehe renderPhotoCropView/ui.cropper).
   if (e.target.closest('[data-photo-input]')) {
     const file = e.target.files?.[0];
-    const profile = profiles.byId(e.target.dataset.photoInput);
+    const profileId = e.target.dataset.photoInput;
     e.target.value = ''; // gleiche Datei erneut wählbar
-    if (!file || !profile) return;
+    if (!file || !profiles.byId(profileId)) return;
     try {
-      const dataUrl = await photoToDataUrl(file);
-      await setAvatar(profile, { type: 'photo', dataUrl });
+      const source = await loadPhotoSource(file);
+      ui.cropper = { profileId, source };
+      renderActiveView();
     } catch (err) {
       console.error(err);
-      alert(err.message || 'Das Bild konnte nicht verarbeitet werden.');
+      alert(err.message || 'Das Bild konnte nicht gelesen werden.');
     }
     return;
   }
@@ -2273,6 +2329,10 @@ profiles.subscribe(() => {
   // Das drehende Glücksrad hängt am DOM-Knoten: neu rendern hieße, die
   // laufende Auslosung ohne Ergebnis wegzuwerfen.
   if (ui.lottery) return;
+  // Offener Foto-Zuschnitt hängt ebenso am DOM (Zeiger-Listener, Zoomstand) —
+  // ein fremder Snapshot (z.B. ein anderes Gerät ändert sein eigenes Profil)
+  // soll ihn nicht wegreißen.
+  if (ui.cropper) return;
   // Getippte Formularwerte retten, bevor aus ui.draft neu gebaut wird.
   if (currentRoute().view === 'new') readDraftFromInputs();
   renderActiveView();
