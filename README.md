@@ -34,6 +34,9 @@ Mobile-first, läuft als statische Seite auf **GitHub Pages**.
   Zuschauer-Ansicht eine Auszahlungs-Übersicht, wer wie viel gewonnen/verloren hat. Auch
   nachträglich für bereits laufende oder abgeschlossene Spiele aktivierbar.
 - Spendenlink zur Unterstützung des Entwicklers auf der Startseite.
+- **Profilfoto-Zuschnitt:** beim Hochladen eines Fotos wird nicht mehr stumpf die Bildmitte
+  genommen — ein eigener Zuschnitt-Bildschirm lässt Ausschnitt und Zoom per Ziehen, Kneifen
+  (zwei Finger) oder Regler frei wählen, bevor gespeichert wird.
 
 **Live:** <https://thommson92.github.io/RaufRunter/>
 
@@ -66,4 +69,5 @@ richtungsabhängiges „nur"), CVD-sichere Chart-Palette, Sortierung nach Erstel
 Spendenlink, korrigierte App-Icons inkl. maskable Variante, mobile Tabellensteuerung.
 Geldeinsatz & Ausschüttung (M17): optionaler Einsatz je Spiel mit vier Ausschüttungsmodi,
 Auszahlungs-Übersicht am Spielende, nachträglich für jedes Spiel aktivier-/änderbar.
+Profilfoto-Zuschnitt (M18): eigener Ausschnitt/Zoom-Bildschirm statt festem Mitte-Crop.
 Mögliche Nächstes: echter Zwei-Geräte-Test.
