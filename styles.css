@@ -553,37 +553,48 @@ tbody tr:nth-child(odd) td.sticky-right { background: #243044; }
 .bar-fill.bar-trick { background: var(--series-2); }
 .bar-value { font-size: 0.75rem; font-weight: 700; color: var(--bg); }
 
-/* ---- Geldverteilung: Select-Dropdown Styling ---- */
-.payout-select {
-  width: 100%;
-  padding: 12px 12px 12px 12px;
+/* ---- Geldverteilung: kompakte Chip-Buttons statt natives Select ---- */
+.payout-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   margin: 8px 0;
-  background: var(--surface-2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%2394a3b8' d='M1 1l5 5 5-5'/%3E%3C/svg%3E") no-repeat right 12px center;
-  background-size: 12px;
-  padding-right: 36px;
-  color: var(--text);
+}
+
+.payout-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 14px;
+  background: var(--surface-2);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  font-size: 1rem;
+  border-radius: 999px;
   cursor: pointer;
-  font-family: inherit;
-  appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
+  font-size: 0.88rem;
+  transition: all 0.15s ease;
 }
 
-.payout-select:hover {
+.payout-chip:hover:not(.disabled) {
   border-color: var(--primary);
-  background-color: rgba(56, 189, 248, 0.05);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%2338bdf8' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
-  background-position: right 12px center;
-  background-repeat: no-repeat;
+  background: rgba(56, 189, 248, 0.08);
 }
 
-.payout-select:focus {
-  outline: none;
+.payout-chip.selected {
+  background: var(--primary);
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.1);
+  color: var(--primary-ink);
+  font-weight: 600;
+}
+
+.payout-chip.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.payout-chip input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
 }
 
 /* ---- Feedback/Spenden Buttons: Vertikal stapeln ---- */
