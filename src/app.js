@@ -991,8 +991,22 @@ function statsHallOfFame(entries) {
   add('🏆', 'Meiste Siege', (s) => s.wins, (v) => `${v} Siege`);
   add('📈', 'Beste Siegquote', (s) => s.winRate, pct);
   add('🥉', 'Meiste Podestplätze', (s) => s.podiums, (v) => `${v}× Podest`);
-  add('🎯', 'Beste Trefferquote', (s) => s.accuracy, pct);
-  add('🎲', 'Unsicherste Ansage', (s) => s.accuracy, pct, { direction: 'worst' });
+
+  // Beste & schlechteste Trefferquote teilen sich dieselbe Datengrundlage —
+  // bei nur einem gewerteten Profil (oder einem Gleichstand über alle) wären
+  // sonst beide Kacheln identisch (derselbe Name, derselbe Wert). Gleiches
+  // Muster wie bei den Pro-Spiel-Fakten-Kacheln (siehe statsFacts()).
+  const accVals = entries
+    .map((e) => ({ name: e.profile.name, value: e.stats.accuracy }))
+    .filter((x) => x.value != null);
+  const accGroup = extremeGroup(accVals);
+  if (accGroup.best) {
+    tiles.push(statTile('🎯', 'Beste Trefferquote', namesList(accGroup.best.names), pct(accGroup.best.value)));
+  }
+  if (accGroup.worst && accGroup.worst.value !== accGroup.best.value) {
+    tiles.push(statTile('🎲', 'Unsicherste Ansage', namesList(accGroup.worst.names), pct(accGroup.worst.value)));
+  }
+
   add('✋', 'Meiste Stiche angesagt', (s) => (s.rounds > 0 ? s.bidSum : null), (v) => `${v} insgesamt`);
   add('🃏', 'Meiste Stiche gemacht', (s) => (s.rounds > 0 ? s.trickSum : null), (v) => `${v} insgesamt`);
   add('😤', 'Mutigste Ansage', (s) => s.bidIndex, idx);

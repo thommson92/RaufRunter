@@ -13,7 +13,7 @@ import {
   accuracyStats,
   longestCorrectStreak,
   extremeRounds,
-  profileMoneyStats,
+  moneyPayouts,
 } from './engine.js';
 
 /**
@@ -44,6 +44,9 @@ function emptyAccumulator() {
     bestGameTotal: null, // {total, gameId, gameName} — bestes Endergebnis, nur fertige Spiele
     bestRound: null, // {score, gameId, gameName, roundIndex}
     bestStreak: 0,
+    moneyGamesPlayed: 0,
+    moneyStake: 0,
+    moneyNet: 0,
   };
 }
 
@@ -53,7 +56,7 @@ function emptyAccumulator() {
  * Datengrundlage fehlt, damit die UI "noch keine Daten" von "0 %" unterscheiden
  * kann.
  */
-function finalize(acc, profileId, games) {
+function finalize(acc, profileId) {
   const { gamesFinished, rounds, fairShareSum } = acc;
   return {
     profileId,
@@ -81,7 +84,11 @@ function finalize(acc, profileId, games) {
     bestGameTotal: acc.bestGameTotal,
     bestRound: acc.bestRound,
     bestStreak: acc.bestStreak,
-    money: profileMoneyStats(games, profileId),
+    money: {
+      gamesPlayed: acc.moneyGamesPlayed,
+      totalStake: acc.moneyStake,
+      totalNet: acc.moneyNet,
+    },
   };
 }
 
@@ -123,6 +130,12 @@ export function aggregateProfileStats(games, profileIds = null) {
       const maxRank = Math.max(...ranking.map((r) => r.rank));
       const winnerCount = ranking.filter((r) => r.rank === 1).length;
       const n = ranking.length;
+      // "Podest" = oberstes Drittel MINUS Schlusslicht — "Top 3" wäre bei
+      // wenigen Spielern bedeutungslos: in einer Zweier-Partie zählte sonst
+      // auch der klar Verlierende (Rang 2) als Podestplatz, in einer
+      // Dreier-Partie IMMER ausnahmslos jeder (Rang 1..3 = alle). Ab 4
+      // Spielern verhält sich das wie das klassische "Top 3".
+      const podiumCutoff = Math.min(3, n - 1);
       for (const entry of ranking) {
         const profileId = idToProfile.get(entry.playerId);
         if (!profileId || (wanted && !wanted.has(profileId))) continue;
@@ -134,7 +147,7 @@ export function aggregateProfileStats(games, profileIds = null) {
           a.wins += 1;
           if (winnerCount > 1) a.sharedWins += 1;
         }
-        if (entry.rank <= 3) a.podiums += 1;
+        if (entry.rank <= podiumCutoff) a.podiums += 1;
         // maxRank > 1 heißt: es gibt überhaupt einen von Rang 1 verschiedenen
         // letzten Platz. Teilen sich ausnahmslos alle Spieler Rang 1 (totaler
         // Gleichstand, maxRank === 1), ist niemand "Letzter" — sonst wäre
@@ -145,6 +158,23 @@ export function aggregateProfileStats(games, profileIds = null) {
         if (!a.bestGameTotal || total > a.bestGameTotal.total) {
           a.bestGameTotal = { total, gameId: game.id, gameName: game.name };
         }
+      }
+    }
+
+    // ---- Geld-Bilanz: wie profileMoneyStats(), aber einmal pro Spiel statt
+    // einmal pro Profil berechnet (moneyPayouts() läuft sonst wiederholt
+    // über dieselben Runden — bei vielen Profilen unnötig teuer). ----
+    if (game.moneyEnabled && finished) {
+      const payouts = moneyPayouts(game);
+      for (const p of game.players) {
+        const profileId = p.profileId;
+        if (!profileId || (wanted && !wanted.has(profileId))) continue;
+        const entry = payouts?.find((x) => x.playerId === p.id);
+        if (!entry || entry.net == null) continue;
+        const a = ensure(profileId);
+        a.moneyGamesPlayed += 1;
+        a.moneyStake += game.stake || 0;
+        a.moneyNet += entry.net;
       }
     }
 
@@ -188,6 +218,6 @@ export function aggregateProfileStats(games, profileIds = null) {
   if (wanted) for (const id of wanted) ensure(id);
 
   const result = new Map();
-  for (const [profileId, a] of acc) result.set(profileId, finalize(a, profileId, games));
+  for (const [profileId, a] of acc) result.set(profileId, finalize(a, profileId));
   return result;
 }

@@ -271,15 +271,18 @@ docs/SPEZIFIKATION.md    dieses Dokument
 `aggregateProfileStats(games, profileIds?)` → `Map<profileId, stats>`. Läuft einmal über alle
 Spiele und summiert ausschließlich die vorhandenen Pro-Spiel-Auswertungen aus `engine.js`
 (`standings`/`accuracyStats`/`bidTrickTotals`/`longestCorrectStreak`/`extremeRounds`/
-`profileMoneyStats`) — hier wird nichts neu bewertet. Grundlage für die Bilanz-Karte im Profil
+`moneyPayouts`) — hier wird nichts neu bewertet. Grundlage für die Bilanz-Karte im Profil
 und die Bestenliste (`#/stats`) in `app.js`.
 
 - **Sieg-/Platzierungsstatistiken** (`wins`, `sharedWins`, `podiums`, `lasts`, `winRate`,
   `podiumRate`, `avgRank`, `rankScore`) zählen **nur vollständig gespielte Spiele** — ein
   laufendes Spiel hat noch keinen Endstand. Geteilter Sieg zählt als Sieg (`sharedWins` weist
-  ihn zusätzlich aus). `lasts` bewertet den tatsächlichen Schlussrang (`Math.max` der Ränge
-  dieses Spiels), nicht `Spieleranzahl` — bei einem Totalgleichstand (alle teilen sich Rang 1)
-  ist niemand „Letzter". `rankScore` normiert den Rang auf `1 − (Rang−1)/(Spieler−1)` (1,0 =
+  ihn zusätzlich aus). `podiums` zählt Rang 1 bis `min(3, Spielerzahl−1)` statt starr "Top 3":
+  in einer Zweier-Partie zählte sonst auch der klar Verlierende als Podestplatz, in einer
+  Dreier-Partie ausnahmslos jeder — ab vier Spielern verhält es sich wie das klassische
+  "Top 3". `lasts` bewertet den tatsächlichen Schlussrang (`Math.max` der Ränge dieses
+  Spiels), nicht `Spieleranzahl` — bei einem Totalgleichstand (alle teilen sich Rang 1) ist
+  niemand „Letzter". `rankScore` normiert den Rang auf `1 − (Rang−1)/(Spieler−1)` (1,0 =
   immer Erster), damit Platz 3 von 4 und Platz 3 von 8 vergleichbar werden.
 - **Rundenstatistiken** (`rounds`, `correct`, `accuracy`, `bidSum`, `trickSum`, `points`,
   `pointsPerRound`, `bestRound`, `bestStreak`) zählen **jede fertige Runde, auch aus noch
@@ -294,7 +297,9 @@ und die Bestenliste (`#/stats`) in `app.js`.
 - Fehlt die Datengrundlage für eine Kennzahl (z. B. `winRate` ohne ein einziges fertiges
   Spiel), liefert das entsprechende Feld `null`, nie `0` oder `NaN` — die UI unterscheidet so
   „noch keine Daten" von einem echten Nullwert.
-- `money` reicht `profileMoneyStats(games, profileId)` unverändert durch (keine Dopplung).
+- `money` (`gamesPlayed`, `totalStake`, `totalNet`) entspricht exakt `engine.profileMoneyStats`,
+  wird aber einmal pro Spiel statt einmal pro Profil berechnet (`moneyPayouts()` liefe sonst bei
+  vielen Profilen wiederholt über dieselben Runden).
 
 ### Charts (`src/charts.js`)
 DOM-Bausteine (kein Chart-Framework) für die Zuschaueransicht: `assignSeriesColors(players)`

@@ -40,10 +40,48 @@ test('aggregateProfileStats: Sieg, Platzierung und Rundenstats über zwei fertig
   assert.equal(alice.gamesFinished, 2);
   assert.equal(alice.wins, 2); // Sieg in g1 (solo) + geteilter Sieg in g2
   assert.equal(alice.sharedWins, 1);
-  assert.equal(alice.podiums, 2); // 2 Spieler -> Rang 1 und 2 sind beide Podest
+  // 2-Spieler-Partie: Podest = nur Rang 1 (siehe eigener Test unten) -> Alice
+  // ist in beiden Spielen Rang 1, also beide Male Podest.
+  assert.equal(alice.podiums, 2);
   assert.equal(bob.wins, 1); // nur der geteilte Sieg in g2
   assert.equal(bob.sharedWins, 1);
   assert.equal(bob.lasts, 1); // in g1 klar Letzter; in g2 teilt er sich Rang 1 -> nicht Letzter
+});
+
+test('aggregateProfileStats: Podest bei wenigen Spielern — Rang 2 in einer Zweier-Partie ist KEIN Podest', () => {
+  const g = game(
+    'g',
+    [{ profileId: 'a' }, { profileId: 'b' }],
+    [round(1, { p0: 1, p1: 0 }, { p0: 1, p1: 0 })], // a gewinnt klar, b ist klar Letzter
+  );
+  const stats = aggregateProfileStats([g]);
+  assert.equal(stats.get('a').podiums, 1); // Rang 1
+  assert.equal(stats.get('b').podiums, 0); // Rang 2 = Letzter, kein Podest
+});
+
+test('aggregateProfileStats: Podest bei einer Dreier-Partie zählt Rang 1+2, nicht den Letzten', () => {
+  const g = game(
+    'g',
+    [{ profileId: 'a' }, { profileId: 'b' }, { profileId: 'c' }],
+    [round(2, { p0: 2, p1: 1, p2: 0 }, { p0: 2, p1: 1, p2: 0 })], // klare Ränge 1, 2, 3
+  );
+  const stats = aggregateProfileStats([g]);
+  assert.equal(stats.get('a').podiums, 1);
+  assert.equal(stats.get('b').podiums, 1);
+  assert.equal(stats.get('c').podiums, 0); // Letzter von dreien ist kein Podest
+});
+
+test('aggregateProfileStats: Podest ab vier Spielern verhält sich wie klassisches "Top 3"', () => {
+  const g = game(
+    'g',
+    [{ profileId: 'a' }, { profileId: 'b' }, { profileId: 'c' }, { profileId: 'd' }],
+    [round(3, { p0: 3, p1: 2, p2: 1, p3: 0 }, { p0: 3, p1: 2, p2: 1, p3: 0 })], // klare Ränge 1..4
+  );
+  const stats = aggregateProfileStats([g]);
+  assert.equal(stats.get('a').podiums, 1);
+  assert.equal(stats.get('b').podiums, 1);
+  assert.equal(stats.get('c').podiums, 1);
+  assert.equal(stats.get('d').podiums, 0); // Rang 4 = Letzter, kein Podest
 });
 
 test('aggregateProfileStats: rankScore bewertet Platz 1 mit 1.0 und den letzten Platz mit 0', () => {
@@ -57,6 +95,11 @@ test('aggregateProfileStats: rankScore bewertet Platz 1 mit 1.0 und den letzten 
   // b und c teilen sich Rang 2 (beide +10) -> rankScore = 1 - (2-1)/(3-1) = 0.5
   assert.equal(stats.get('b').rankScore, 0.5);
   assert.equal(stats.get('c').rankScore, 0.5);
+  // Gleicher Fixture, anderer Aspekt: b und c teilen sich NUR den letzten
+  // Platz (nicht alle drei) -> beide sind "Letzter", a nicht.
+  assert.equal(stats.get('a').lasts, 0);
+  assert.equal(stats.get('b').lasts, 1);
+  assert.equal(stats.get('c').lasts, 1);
 });
 
 test('aggregateProfileStats: laufendes Spiel liefert Rundenstats, aber keine Platzierung', () => {
@@ -162,7 +205,7 @@ test('aggregateProfileStats: bestRound/bestStreak nehmen das Maximum über alle 
   assert.equal(a.bestStreak, 2);
 });
 
-test('aggregateProfileStats: money wird über profileMoneyStats durchgereicht', () => {
+test('aggregateProfileStats: Geld-Bilanz entspricht engine.profileMoneyStats', () => {
   const g = game(
     'g',
     [{ profileId: 'a' }, { profileId: 'b' }],
@@ -174,4 +217,15 @@ test('aggregateProfileStats: money wird über profileMoneyStats durchgereicht', 
   assert.equal(a.money.gamesPlayed, 1);
   assert.equal(a.money.totalStake, 10);
   assert.equal(a.money.totalNet, 10); // gewinnt den ganzen Topf (20€) abzüglich eigenem Einsatz (10€)
+});
+
+test('aggregateProfileStats: Geldspiel ohne fertige Runden zählt noch nicht in der Geld-Bilanz', () => {
+  const g = game(
+    'g',
+    [{ profileId: 'a' }, { profileId: 'b' }],
+    [round(1, {}, {}, false)], // offen -> Spiel nicht fertig
+    { moneyEnabled: true, stake: 10, payoutMode: 'winner-takes-all' },
+  );
+  const stats = aggregateProfileStats([g]);
+  assert.equal(stats.get('a').money.gamesPlayed, 0);
 });
