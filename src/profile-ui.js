@@ -5,12 +5,17 @@
 import { identiconSvg } from './identicon.js';
 import { esc } from './html.js';
 
-/** Kantenlänge, auf die hochgeladene Fotos verkleinert werden. */
+/** Kantenlänge, auf die das fertig zugeschnittene Foto verkleinert wird. */
 const PHOTO_SIZE = 256;
 // Obergrenze für das fertige Bild. Firestore erlaubt 1 MiB pro Dokument, aber
 // der engere Deckel gilt der Render-Last: das Bild steckt in jeder Profil-Liste
 // und in jedem Vorschlag der Suchliste. 256px/q0.8 liegt real bei 10–20 KB.
 const MAX_PHOTO_CHARS = 60 * 1024;
+// Obergrenze für die Zuschnitt-Vorschau (nicht das Endergebnis): begrenzt den
+// Speicherbedarf auf älteren Handys — ein 4000×3000-Foto aus der Kamera wäre
+// unverkleinert ~48 MB als Canvas, das Zuschnitt-Widget braucht dafür nie
+// mehr Auflösung, als selbst beim 4×-Zoom aus PHOTO_SIZE herauskommt.
+const CROP_SOURCE_SIZE = 1024;
 
 /**
  * Ist das eine eingebettete Bild-Data-URL? Base64 enthält keine Zeichen, die in
@@ -45,33 +50,43 @@ export function avatarNameHtml(profile, name, size = 24) {
 }
 
 /**
- * Foto aus einer Datei-Auswahl zu einem quadratischen, verkleinerten JPEG-DataURL
- * machen. Wird direkt im Profil-Dokument gespeichert — kein Storage-Bucket nötig.
+ * Bilddatei laden und auf eine für den Zuschnitt handhabbare Größe bringen.
+ * Das Ergebnis ist die Quelle für den Zuschnitt-Dialog (`photo-crop.js`) —
+ * der Nutzer wählt darauf noch Ausschnitt & Zoom, bevor irgendetwas
+ * gespeichert wird.
  * @param {File} file
- * @returns {Promise<string>} data:image/jpeg;base64,…
+ * @returns {Promise<HTMLCanvasElement>}
  */
-export async function photoToDataUrl(file) {
+export async function loadPhotoSource(file) {
   if (!file.type.startsWith('image/')) throw new Error('Bitte ein Bild auswählen.');
-  const source = await loadImage(file);
+  const img = await loadImage(file);
+  try {
+    const scale = Math.min(1, CROP_SOURCE_SIZE / Math.max(img.width, img.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(img.width * scale);
+    canvas.height = Math.round(img.height * scale);
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas;
+  } finally {
+    if (typeof img.close === 'function') img.close();
+  }
+}
 
-  const side = Math.min(source.width, source.height);
+/**
+ * Den vom Nutzer gewählten Ausschnitt (`crop-model.js`-`sourceRect`, in
+ * Pixelkoordinaten von `source`) zu einem quadratischen JPEG-DataURL machen.
+ * Wird direkt im Profil-Dokument gespeichert — kein Storage-Bucket nötig.
+ * @param {HTMLCanvasElement} source von loadPhotoSource()
+ * @param {{sx:number, sy:number, side:number}} rect
+ * @returns {string} data:image/jpeg;base64,…
+ */
+export function cropToDataUrl(source, rect) {
   const canvas = document.createElement('canvas');
   canvas.width = PHOTO_SIZE;
   canvas.height = PHOTO_SIZE;
-  const ctx = canvas.getContext('2d');
-  // Mittigen quadratischen Ausschnitt nehmen, damit nichts verzerrt.
-  ctx.drawImage(
-    source,
-    (source.width - side) / 2,
-    (source.height - side) / 2,
-    side,
-    side,
-    0,
-    0,
-    PHOTO_SIZE,
-    PHOTO_SIZE,
-  );
-  if (typeof source.close === 'function') source.close();
+  canvas
+    .getContext('2d')
+    .drawImage(source, rect.sx, rect.sy, rect.side, rect.side, 0, 0, PHOTO_SIZE, PHOTO_SIZE);
 
   const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
   if (dataUrl.length > MAX_PHOTO_CHARS) {
