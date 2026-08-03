@@ -845,15 +845,12 @@ function entryPanel(game) {
 
   return `
     <div class="card">
-      <div class="row spread">
-        <h2 style="margin:0">Runde ${ui.activeRound + 1}/${game.rounds.length}</h2>
-        <span class="pill">${cc} ${cc === 1 ? 'Karte' : 'Karten'}</span>
-      </div>
+      <h2 style="margin:0">Runde ${ui.activeRound + 1}/${game.rounds.length}</h2>
       ${
         dealer
-          ? `<p class="muted" style="margin:6px 0 0;font-size:0.85rem">🃏 ${esc(
-              dealer.name,
-            )} gibt${restrict ? ' und sagt zuletzt an' : ''}</p>`
+          ? `<p class="dealer-line">${avatarNameHtml(profileOf(dealer), dealer.name)}<span>gibt ${cc} ${
+              cc === 1 ? 'Karte' : 'Karten'
+            } 🃏${restrict ? ' · sagt zuletzt an' : ''}</span></p>`
           : ''
       }
       <div class="row spread" style="margin-top:12px">
@@ -1037,11 +1034,14 @@ function playerStrip(game) {
   const items = ranking
     .map((r) => {
       const p = byId[r.playerId];
-      const place = `${RANK_MEDALS[r.rank] || `${r.rank}.`} `;
+      const place = RANK_MEDALS[r.rank] || `${r.rank}.`;
       return `
         <div class="player-strip-item">
           ${avatarHtml(profileOf(p), 52)}
-          <span class="player-strip-name">${place}${esc(p.name)}</span>
+          <span class="player-strip-name-row">
+            <span class="player-strip-rank">${place}</span>
+            <span class="player-strip-name">${esc(p.name)}</span>
+          </span>
           <span class="player-strip-score">${fmtScore(byPlayer[p.id].total)}</span>
         </div>`;
     })

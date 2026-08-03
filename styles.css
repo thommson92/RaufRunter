@@ -311,12 +311,31 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 12px 0 
 .entry-sub { font-size: 0.8rem; color: var(--muted); }
 
 /* ---- Zuschauer: Spielerleiste (Avatare, Platzierung, Punktestand) ---- */
-.player-strip { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px 12px; }
-.player-strip-item {
-  display: flex; flex-direction: column; align-items: center; gap: 4px; width: 84px;
+/* Grid statt Flex+space-evenly: bei wenigen Spielern (2-4) auf einer breiten
+   Karte sonst ein schmales Grüppchen in der Mitte mit viel totem Platz
+   links/rechts. Mit auto-fit teilen sich alle Zeilen dieselben Spalten —
+   anders als bei flex-wrap+space-evenly richtet sich so eine unvollständige
+   letzte Zeile (z.B. 3 von 4 Spalten belegt) nicht neu/breiter aus, sondern
+   bleibt an denselben Spaltenpositionen wie die Zeile(n) darüber. */
+.player-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  justify-items: center;
+  gap: 14px 12px;
 }
+.player-strip-item {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; width: 92px;
+}
+/* Rang-Emoji und Name als eigene Flex-Kinder: sonst kann der Zeilenumbruch
+   (bei knappem Platz + langem Namen) die Medaille vom Namen trennen und auf
+   eine eigene Zeile werfen ("🥇" allein oben, "Schuulsen" darunter). So bricht
+   höchstens der Name selbst um, die Medaille bleibt immer auf Zeile 1 fix. */
+.player-strip-name-row {
+  display: flex; align-items: baseline; justify-content: center; gap: 3px; max-width: 100%;
+}
+.player-strip-rank { flex: 0 0 auto; }
 .player-strip-name {
-  font-size: 0.8rem; font-weight: 600; max-width: 100%;
+  font-size: 0.8rem; font-weight: 600; min-width: 0; max-width: 100%;
   text-align: center; overflow-wrap: break-word;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
