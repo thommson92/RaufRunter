@@ -44,6 +44,7 @@ import {
   dealerMalusStats,
   roundEvents,
 } from './engine.js';
+import { aggregateProfileStats } from './profile-stats.js';
 import { assignSeriesColors, buildScoreChart, buildRankChart, buildBidVsTricksChart } from './charts.js';
 import { buildDealerWheel } from './wheel.js';
 import { generateRoundCommentary } from './commentary.js';
@@ -88,6 +89,8 @@ const ui = {
   pickerQuery: {}, // Sucheingabe je Combobox (Schlüssel = data-i)
   adminUnlocked: false, // Passwort im Admin-Bereich eingegeben (nur für diese Sitzung)
   admin: null, // { games, mergeFrom, mergeTo } im Admin-Bereich
+  stats: null, // { games } in der Bestenliste (#/stats), einmal geladen & zwischengespeichert
+  statsMetric: 'winRate', // aktuell gewählte Kennzahl in der Ranglisten-Ansicht von #/stats
 };
 
 /**
@@ -148,6 +151,11 @@ function fmtMoney(n) {
   if (n == null) return '<span class="muted">–</span>';
   const cls = n > 0 ? 'pos' : n < 0 ? 'neg' : '';
   return `<span class="${cls}">${n > 0 ? '+' : ''}${fmtEuro(n)}</span>`;
+}
+
+/** Dezimalzahl mit deutschem Komma statt Punkt, z. B. für Indizes/Ø-Werte. */
+function fmtNum(n, decimals = 1) {
+  return n.toLocaleString('de-DE', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }
 
 function seatSorted(game) {
@@ -221,6 +229,8 @@ function renderActiveView() {
       return renderViewer();
     case 'profiles':
       return id ? renderProfileEditor(id) : renderProfileList();
+    case 'stats':
+      return renderStatsPage();
     case 'admin':
       return renderAdmin();
     default:
@@ -304,6 +314,7 @@ async function renderHome() {
   appEl.innerHTML = `
     <div class="topbar">
       <h1>🃏 Rauf Runter</h1>
+      <button class="icon-btn btn-ghost" data-action="stats" title="Bestenliste">🏆</button>
       <button class="icon-btn btn-ghost" data-action="profiles" title="Spielerprofile">👥</button>
     </div>
     ${items}
@@ -652,11 +663,114 @@ async function renderProfileList() {
         <button class="btn-primary" data-action="add-profile" style="flex:0 0 auto">Anlegen</button>
       </div>
     </div>
+    <button class="btn-ghost" data-action="stats" style="width:100%">🏆 Bestenliste</button>
     <button class="btn-ghost" data-action="admin" style="width:100%">🔧 Verwaltung</button>
   `;
 }
 
 /** Einzelnes Profil: Name & Profilbild ändern, löschen. */
+/**
+ * Spielerbilanz-Karte in der Profil-Detailansicht (`profile-stats.js`):
+ * Sieg-/Platzierungs- und Rundenstatistiken über alle Spiele des Profils.
+ * Ranglisten-Kacheln (Siegquote, Podest, Ø-Platzierung, rote Laterne)
+ * brauchen mindestens ein fertig gespieltes Spiel; Runden-Kacheln
+ * (Trefferquote, Ansage-/Stich-Index, Punkte) zählen auch Runden aus noch
+ * laufenden Spielen. Ohne jedes Spiel entfällt die Karte ganz — wie
+ * `profileMoneyCard` unten.
+ * @param {object[]} games alle Spiele (ungefiltert)
+ * @param {string} profileId
+ */
+function profileStatsCard(games, profileId) {
+  const stats = aggregateProfileStats(games, [profileId]).get(profileId);
+  if (!stats || stats.gamesTotal === 0) return '';
+
+  const tiles = [];
+  tiles.push(
+    statTile(
+      '🎮',
+      'Spiele',
+      stats.gamesTotal,
+      stats.gamesFinished === stats.gamesTotal
+        ? 'alle abgeschlossen'
+        : `${stats.gamesFinished} von ${stats.gamesTotal} abgeschlossen`,
+    ),
+  );
+
+  if (stats.gamesFinished > 0) {
+    tiles.push(
+      statTile(
+        '🏆',
+        'Siegquote',
+        `${Math.round(stats.winRate * 100)}%`,
+        stats.sharedWins > 0
+          ? `${stats.wins} von ${stats.gamesFinished} (${stats.sharedWins}× geteilt)`
+          : `${stats.wins} von ${stats.gamesFinished} Spielen`,
+      ),
+    );
+    tiles.push(
+      statTile(
+        '🥉',
+        'Podest',
+        `${Math.round(stats.podiumRate * 100)}%`,
+        `${stats.podiums} von ${stats.gamesFinished} Spielen`,
+      ),
+    );
+    tiles.push(
+      statTile(
+        '📊',
+        'Ø Platzierung',
+        fmtNum(stats.avgRank),
+        `${Math.round(stats.rankScore * 100)}% Platzierungsstärke`,
+      ),
+    );
+    if (stats.lasts > 0) {
+      tiles.push(
+        statTile('🔴', 'Rote Laterne', stats.lasts, `von ${stats.gamesFinished} Spielen Letzter`),
+      );
+    }
+  }
+
+  if (stats.rounds > 0) {
+    tiles.push(
+      statTile(
+        '🎯',
+        'Trefferquote',
+        `${Math.round(stats.accuracy * 100)}%`,
+        `${stats.correct} von ${stats.rounds} Runden`,
+      ),
+    );
+    tiles.push(statTile('✋', 'Ansage-Index', fmtNum(stats.bidIndex, 2), '1,00 = fairer Anteil'));
+    tiles.push(statTile('🃏', 'Stich-Index', fmtNum(stats.trickIndex, 2), '1,00 = fairer Anteil'));
+    tiles.push(
+      statTile('⭐', 'Ø Punkte/Runde', fmtNum(stats.pointsPerRound), `${stats.points} insgesamt`),
+    );
+    if (stats.bestStreak > 0) {
+      tiles.push(statTile('🔥', 'Längste Treffer-Serie', stats.bestStreak, 'Runden in Folge'));
+    }
+  }
+  if (stats.bestGameTotal) {
+    tiles.push(
+      statTile('🏅', 'Bestes Spielergebnis', fmtScore(stats.bestGameTotal.total), stats.bestGameTotal.gameName),
+    );
+  }
+  if (stats.bestRound) {
+    tiles.push(
+      statTile(
+        '🎲',
+        'Beste Einzelrunde',
+        fmtScore(stats.bestRound.score),
+        `${stats.bestRound.gameName}, Runde ${stats.bestRound.roundIndex + 1}`,
+      ),
+    );
+  }
+
+  return `
+    <div class="card">
+      <h2 style="margin:0 0 10px">📊 Bilanz</h2>
+      <div class="stat-grid">${tiles.join('')}</div>
+    </div>`;
+}
+
 /**
  * Geld-Bilanz-Karte in der Profil-Detailansicht (`engine.profileMoneyStats`).
  * Nur sichtbar, wenn das Profil je an einem ausgewerteten Geldspiel
@@ -729,6 +843,7 @@ async function renderProfileEditor(id) {
         Der Name wird in allen ${used.length === 1 ? '1 Spiel' : `${used.length} Spielen`} nachgezogen – auch rückwirkend.
       </p>
     </div>
+    ${profileStatsCard(games, id)}
     ${profileMoneyCard(games, id)}
     <div class="card">
       <h2>Gespielt</h2>
@@ -762,6 +877,219 @@ async function loadGamesQuietly() {
     console.error('Spiele konnten nicht geladen werden:', e);
     return [];
   }
+}
+
+// ---------- Bestenliste (#/stats) ----------
+
+/**
+ * Kennzahlen-Register für die Ranglisten-Ansicht: `get` liest den Wert aus
+ * einem profile-stats.js-Eintrag (`null` = keine Datengrundlage — so ein
+ * Profil taucht dann in dieser Liste einfach nicht auf, siehe
+ * `statsRankRows`), `sub` liefert die Stichprobe dazu (z.B. „5 von 6
+ * Spielen"), damit ein einzelner Sieg nicht wie eine verlässliche
+ * 100 %-Quote wirkt — bewusst ohne Mindestteilnahme-Schwelle.
+ */
+const STATS_METRICS = [
+  {
+    key: 'winRate',
+    label: 'Siegquote',
+    get: (s) => s.winRate,
+    format: (v) => `${Math.round(v * 100)}%`,
+    sub: (s) => `${s.wins} von ${s.gamesFinished} Spielen`,
+  },
+  {
+    key: 'podiumRate',
+    label: 'Podestquote',
+    get: (s) => s.podiumRate,
+    format: (v) => `${Math.round(v * 100)}%`,
+    sub: (s) => `${s.podiums} von ${s.gamesFinished} Spielen`,
+  },
+  {
+    key: 'rankScore',
+    label: 'Platzierungsstärke',
+    get: (s) => s.rankScore,
+    format: (v) => `${Math.round(v * 100)}%`,
+    sub: (s) => `Ø Platz ${fmtNum(s.avgRank)}`,
+  },
+  {
+    key: 'accuracy',
+    label: 'Trefferquote',
+    get: (s) => s.accuracy,
+    format: (v) => `${Math.round(v * 100)}%`,
+    sub: (s) => `${s.correct} von ${s.rounds} Runden`,
+  },
+  {
+    key: 'bidIndex',
+    label: 'Ansage-Index',
+    get: (s) => s.bidIndex,
+    format: (v) => fmtNum(v, 2),
+    sub: (s) => `${s.bidSum} Stiche angesagt in ${s.rounds} Runden`,
+  },
+  {
+    key: 'trickIndex',
+    label: 'Stich-Index',
+    get: (s) => s.trickIndex,
+    format: (v) => fmtNum(v, 2),
+    sub: (s) => `${s.trickSum} Stiche gemacht in ${s.rounds} Runden`,
+  },
+  {
+    key: 'bidSum',
+    label: 'Stiche angesagt (gesamt)',
+    get: (s) => (s.rounds > 0 ? s.bidSum : null),
+    format: (v) => String(v),
+    sub: (s) => `${s.rounds} Runden gespielt`,
+  },
+  {
+    key: 'trickSum',
+    label: 'Stiche gemacht (gesamt)',
+    get: (s) => (s.rounds > 0 ? s.trickSum : null),
+    format: (v) => String(v),
+    sub: (s) => `${s.rounds} Runden gespielt`,
+  },
+  {
+    key: 'money',
+    label: 'Geld-Bilanz',
+    get: (s) => (s.money.gamesPlayed > 0 ? s.money.totalNet : null),
+    format: (v) => fmtMoney(v),
+    sub: (s) => `${s.money.gamesPlayed} Geldspiele`,
+  },
+];
+
+/** Kurzer Erklärtext unter den beiden normierten Index-Ranglisten. */
+const STATS_METRIC_HINTS = {
+  bidIndex:
+    '1,00 = genau der faire Anteil an den Stichen dieser Runde (Kartenzahl ÷ Mitspieler). Über 1 = sagt im Schnitt mehr an, als rechnerisch auf die Person entfiele.',
+  trickIndex:
+    '1,00 = genau der faire Anteil an den Stichen dieser Runde. Über 1 = macht im Schnitt mehr Stiche, als rechnerisch auf die Person entfiele.',
+};
+
+/**
+ * Hall-of-Fame-Kacheln: wer führt bei welcher Kennzahl? Bei Gleichstand
+ * werden alle betroffenen Namen genannt (wie bei den Fakten-Kacheln der
+ * Zuschaueransicht, siehe `extremeGroup`).
+ * @param {{profile:object, stats:object}[]} entries
+ */
+function statsHallOfFame(entries) {
+  const pct = (v) => `${Math.round(v * 100)}%`;
+  const idx = (v) => fmtNum(v, 2);
+  // Reiner Text ohne HTML: statTile() escaped den sub-Parameter (anders als
+  // die Ranglisten-Zeile, wo derselbe Wert unescaped eingesetzt wird) —
+  // fmtMoney()s <span> für Farbe würde hier sonst als literaler Text
+  // erscheinen statt gerendert zu werden.
+  const money = (v) => `${v > 0 ? '+' : ''}${fmtEuro(v)}`;
+
+  const tiles = [];
+  const add = (icon, label, get, format, { direction = 'best' } = {}) => {
+    const values = entries
+      .map((e) => ({ name: e.profile.name, value: get(e.stats) }))
+      .filter((x) => x.value != null);
+    const picked = extremeGroup(values)[direction];
+    if (!picked) return;
+    tiles.push(statTile(icon, label, namesList(picked.names), format(picked.value)));
+  };
+
+  add('🏆', 'Meiste Siege', (s) => s.wins, (v) => `${v} Siege`);
+  add('📈', 'Beste Siegquote', (s) => s.winRate, pct);
+  add('🥉', 'Meiste Podestplätze', (s) => s.podiums, (v) => `${v}× Podest`);
+  add('🎯', 'Beste Trefferquote', (s) => s.accuracy, pct);
+  add('🎲', 'Unsicherste Ansage', (s) => s.accuracy, pct, { direction: 'worst' });
+  add('✋', 'Meiste Stiche angesagt', (s) => (s.rounds > 0 ? s.bidSum : null), (v) => `${v} insgesamt`);
+  add('🃏', 'Meiste Stiche gemacht', (s) => (s.rounds > 0 ? s.trickSum : null), (v) => `${v} insgesamt`);
+  add('😤', 'Mutigste Ansage', (s) => s.bidIndex, idx);
+  add('🥷', 'Erfolgreichster Stecher', (s) => s.trickIndex, idx);
+  add('🎈', 'Größter Aufschneider', (s) => s.overbid, idx);
+  add('🔥', 'Längste Treffer-Serie', (s) => (s.bestStreak > 0 ? s.bestStreak : null), (v) => `${v} Runden in Folge`);
+  add('💰', 'Beste Geld-Bilanz', (s) => (s.money.gamesPlayed > 0 ? s.money.totalNet : null), money);
+
+  return tiles.join('');
+}
+
+/** Vollständige, nach `metricKey` absteigend sortierte Rangliste. */
+function statsRankRows(entries, metricKey) {
+  const metric = STATS_METRICS.find((m) => m.key === metricKey) || STATS_METRICS[0];
+  const rows = entries
+    .map((e) => ({ profile: e.profile, value: metric.get(e.stats), sub: metric.sub(e.stats) }))
+    .filter((r) => r.value != null)
+    .sort((a, b) => b.value - a.value);
+
+  if (!rows.length) {
+    return '<p class="muted" style="margin:0">Noch keine Daten für diese Kennzahl.</p>';
+  }
+  return rows
+    .map(
+      (r, i) => `
+      <div class="stats-rank-row">
+        <div class="stats-rank-num">${i + 1}.</div>
+        ${avatarNameHtml(r.profile, r.profile.name, 32)}
+        <div class="stats-rank-value">
+          <div>${metric.format(r.value)}</div>
+          <div class="stats-rank-sub muted">${esc(r.sub)}</div>
+        </div>
+      </div>`,
+    )
+    .join('');
+}
+
+/**
+ * All-Time-Bestenliste über alle Spielerprofile: Hall-of-Fame-Kacheln für die
+ * jeweiligen Spitzenreiter + eine vollständige, nach wählbarer Kennzahl
+ * sortierte Rangliste. Nutzt dieselbe profile-stats.js-Aggregation wie die
+ * einzelne Bilanz-Karte im Profil, hier über alle Profile gleichzeitig.
+ * Spiele werden einmal geladen und in `ui.stats` zwischengespeichert — ein
+ * Wechsel der Ranglisten-Kennzahl rendert nur neu, ohne erneut zu laden.
+ */
+async function renderStatsPage() {
+  if (renderProfileGate()) return;
+  if (!ui.stats) {
+    appEl.innerHTML = `
+      <div class="topbar"><button class="icon-btn btn-ghost" data-action="home">‹</button><h1>🏆 Bestenliste</h1></div>
+      <div class="empty">Lade Spiele …</div>`;
+    const games = await loadGamesQuietly();
+    if (currentRoute().view !== 'stats') return; // inzwischen weggenavigiert
+    ui.stats = { games };
+  }
+
+  const { games } = ui.stats;
+  const entries = [...aggregateProfileStats(games).entries()]
+    .map(([profileId, stats]) => ({ profile: profiles.byId(profileId), stats }))
+    // Profil zwischenzeitlich gelöscht, aber noch in alten Spielen referenziert.
+    .filter((e) => e.profile);
+
+  appEl.innerHTML = `
+    <div class="topbar">
+      <button class="icon-btn btn-ghost" data-action="home">‹</button>
+      <h1>🏆 Bestenliste</h1>
+    </div>
+    ${
+      !entries.length
+        ? '<div class="empty">Noch keine gespielten Runden.<br/>Sobald ein Spiel läuft, erscheinen hier die Spitzenreiter.</div>'
+        : `
+    <div class="card">
+      <h2>Hall of Fame</h2>
+      <div class="stat-grid">${statsHallOfFame(entries)}</div>
+    </div>
+    <div class="card">
+      <h2>Ranglisten</h2>
+      <div class="metric-chip-row">
+        ${STATS_METRICS.map(
+          (m) =>
+            `<button class="metric-chip ${
+              ui.statsMetric === m.key ? 'active' : ''
+            }" data-action="set-stats-metric" data-v="${m.key}">${esc(m.label)}</button>`,
+        ).join('')}
+      </div>
+      ${
+        STATS_METRIC_HINTS[ui.statsMetric]
+          ? `<p class="muted" style="font-size:0.78rem;margin:0 0 12px">${esc(
+              STATS_METRIC_HINTS[ui.statsMetric],
+            )}</p>`
+          : ''
+      }
+      <div class="stats-rank-list">${statsRankRows(entries, ui.statsMetric)}</div>
+    </div>`
+    }
+    <button class="btn-ghost" data-action="profiles" style="width:100%">👥 Spielerprofile</button>
+  `;
 }
 
 // ---------- Verwaltung ----------
@@ -1879,6 +2207,14 @@ async function onClick(e) {
     case 'admin':
       ui.admin = null;
       navigate('/admin');
+      break;
+    case 'stats':
+      ui.stats = null;
+      navigate('/stats');
+      break;
+    case 'set-stats-metric':
+      ui.statsMetric = v;
+      renderActiveView();
       break;
     case 'view':
       navigate('/view/' + gid);

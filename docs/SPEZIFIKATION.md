@@ -148,7 +148,8 @@ Smartphone nutzen. → **Mobile-first.**
 - `#/players/<id>` — Sitzreihenfolge im Spiel ändern (Namen kommen aus dem Profil).
 - `#/view/<id>` — **Zuschauer-Ansicht** (read-only, live).
 - `#/profiles` — **Spielerprofile**: Übersicht & Anlegen (ohne Passwort).
-- `#/profiles/<id>` — Profil bearbeiten: Name, Profilbild, Löschen (Passwort).
+- `#/profiles/<id>` — Profil bearbeiten: Name, Profilbild, Löschen (Passwort), Bilanz-Karte.
+- `#/stats` — **All-Time-Bestenliste**: Hall of Fame + umschaltbare Ranglisten über alle Profile.
 - `#/admin` — **Verwaltung** (Passwort): Profile zusammenführen, alte Runden zuordnen.
 
 ### Datenmodell
@@ -216,6 +217,7 @@ src/store-profiles.js    Firestore-Adapter für Spielerprofile + Modul-Cache
 src/identicon.js         Generierte Profilbilder (rein, testbar)
 src/profile-model.js     Profil-Fachlogik: Suche, Dubletten, Merge (rein, testbar)
 src/profile-ui.js        Avatare, Foto-Aufbereitung, Combobox-Markup
+src/profile-stats.js     Spielübergreifende Kennzahlen je Profil (rein, testbar)
 src/html.js              esc() für die Template-Strings
 src/app.js               UI, Hash-Router, Event-Handling
 test/*.test.mjs          Unit-Tests (node --test)
@@ -232,9 +234,11 @@ docs/SPEZIFIKATION.md    dieses Dokument
 - `tricksCheck(round)` → Plausibilität (Summe Stiche == Kartenzahl)
 - `randomTrump()` / `TRUMP_COLORS`
 - **Statistiken (M6):** `rankProgression(game)` (kumulierter Punktestand & geteilter Rang je fertiger Runde),
-  `bidTrickTotals(game)` (Summe Ansagen/Stiche je Spieler), `accuracyStats(game)` (Trefferquote),
-  `longestCorrectStreak(game)`, `extremeRounds(game)` (beste/schlechteste Einzelrunde — gibt
-  **alle** Einträge am Extremwert zurück, nicht nur den ersten), `trumpCounts(game)` (Häufigkeit
+  `bidTrickTotals(game)` (Summe Ansagen/Stiche je Spieler **+ `fairShareSum`**, seit M19: Summe von
+  `cardCount / Spielerzahl` über dieselben Runden — der „faire Anteil", Basis für die
+  spielübergreifend vergleichbaren Ansage-/Stich-Indizes in `profile-stats.js`), `accuracyStats(game)`
+  (Trefferquote), `longestCorrectStreak(game)`, `extremeRounds(game)` (beste/schlechteste Einzelrunde
+  — gibt **alle** Einträge am Extremwert zurück, nicht nur den ersten), `trumpCounts(game)` (Häufigkeit
   geloster Trumpffarben)
 - **Geber-Auslosung (M7):** `rotateToStart(list, startIndex)` — rotiert ein Array (Namen oder
   Spieler) so, dass das Element an `startIndex` künftig an Position 0 steht; Nachbarschaft/
@@ -262,6 +266,35 @@ docs/SPEZIFIKATION.md    dieses Dokument
   Plätze (`rank..rank+k-1`) zusammengelegt und gleichmäßig auf die Gruppe verteilt (siehe
   Entscheidung #21), der nicht vergebene Rest geht gesammelt an Rang 1. `manual` reicht
   `game.manualPayouts` durch.
+
+### Spieler-Statistiken (`src/profile-stats.js`, M19)
+`aggregateProfileStats(games, profileIds?)` → `Map<profileId, stats>`. Läuft einmal über alle
+Spiele und summiert ausschließlich die vorhandenen Pro-Spiel-Auswertungen aus `engine.js`
+(`standings`/`accuracyStats`/`bidTrickTotals`/`longestCorrectStreak`/`extremeRounds`/
+`profileMoneyStats`) — hier wird nichts neu bewertet. Grundlage für die Bilanz-Karte im Profil
+und die Bestenliste (`#/stats`) in `app.js`.
+
+- **Sieg-/Platzierungsstatistiken** (`wins`, `sharedWins`, `podiums`, `lasts`, `winRate`,
+  `podiumRate`, `avgRank`, `rankScore`) zählen **nur vollständig gespielte Spiele** — ein
+  laufendes Spiel hat noch keinen Endstand. Geteilter Sieg zählt als Sieg (`sharedWins` weist
+  ihn zusätzlich aus). `lasts` bewertet den tatsächlichen Schlussrang (`Math.max` der Ränge
+  dieses Spiels), nicht `Spieleranzahl` — bei einem Totalgleichstand (alle teilen sich Rang 1)
+  ist niemand „Letzter". `rankScore` normiert den Rang auf `1 − (Rang−1)/(Spieler−1)` (1,0 =
+  immer Erster), damit Platz 3 von 4 und Platz 3 von 8 vergleichbar werden.
+- **Rundenstatistiken** (`rounds`, `correct`, `accuracy`, `bidSum`, `trickSum`, `points`,
+  `pointsPerRound`, `bestRound`, `bestStreak`) zählen **jede fertige Runde, auch aus noch
+  laufenden Spielen** — die Trefferquote einer Runde ändert sich nicht dadurch, dass das
+  Spiel insgesamt noch nicht zu Ende ist. `bestGameTotal` (bestes Endergebnis) ist die
+  Ausnahme und braucht wie die Platzierung ein fertiges Spiel.
+- **Ansage-/Stich-Index** (`bidIndex = bidSum / fairShareSum`, `trickIndex = trickSum /
+  fairShareSum`, `overbid = bidIndex − trickIndex`): normiert auf den „fairen Anteil" (siehe
+  `bidTrickTotals`), dadurch über unterschiedliche Kartenzahlen und Spielerzahlen hinweg
+  vergleichbar. `1,00` = genau der Durchschnitt; der Stich-Index über alle Spieler *eines*
+  Spiels gemittelt ergibt immer exakt `1` (alle Stiche einer Runde werden vergeben).
+- Fehlt die Datengrundlage für eine Kennzahl (z. B. `winRate` ohne ein einziges fertiges
+  Spiel), liefert das entsprechende Feld `null`, nie `0` oder `NaN` — die UI unterscheidet so
+  „noch keine Daten" von einem echten Nullwert.
+- `money` reicht `profileMoneyStats(games, profileId)` unverändert durch (keine Dopplung).
 
 ### Charts (`src/charts.js`)
 DOM-Bausteine (kein Chart-Framework) für die Zuschaueransicht: `assignSeriesColors(players)`
@@ -336,6 +369,7 @@ Ansicht"-Button mehr, das leistet ihr Zurück-Pfeil bereits).
 | **M15** | **Rundenkommentar: mehr Themenvielfalt** (siehe Entscheidung #20 für die zurückgestellte KI-Variante). Neue Themen neben Held/Bösewicht/Nullansage/Führungswechsel/Kletterer: laufende Serien (`currentStreaks`), Geber-Falle gemeistert/gescheitert je Einzelrunde (`dealerOutcomeForRound`), auffällige Ansage-Tendenz (`biddingBias`), frecher Spruch bei krassem Fehlgriff, größter Faller als Kehrseite des Kletterers. Auswahl der zwei Highlights pro Runde nicht mehr fest priorisiert, sondern deterministisch gemischt (`shuffleKey`), damit sich der Kommentar übers Spiel hinweg nicht strukturell wiederholt. | ✅ fertig |
 | **M16** | **Feinschliff aus M13/M14-Feedback**: Favicon war nur eine 192px-PNG ohne `sizes` — jetzt zusätzlich `assets/icon.svg` als primärer (skalierbar scharfer) Favicon-Link. Startseite zeigt anfangs nur die letzten 5 Spiele + „weitere anzeigen"-Button, damit Spenden-/Feedback-Buttons unten bei vielen Spielen nicht erst nach langem Scrollen erreichbar sind. Spielerleiste (M13): lange Namen wurden bei fester Breite mit `…` abgeschnitten statt umzubrechen — jetzt bis zu zwei Zeilen; Silber/Bronze-Medaillen (🥈/🥉) für Platz 2/3, vorher nur Gold für Platz 1. Geber-Zeile (M13): Name und Folgetext standen auf unterschiedlicher Höhe, weil `.avatar-name` (inline-flex) im normalen Textfluss eines `<p>` keine echte Baseline hat — Zeile ist jetzt selbst ein Flex-Container. | ✅ fertig |
 | **M17** | **Geldeinsatz & Ausschüttung**: neue „💰 Geld"-Karte beim Anlegen eines Spiels UND jederzeit nachträglich in der Schreiber-Ansicht editierbar (auch für längst abgeschlossene Spiele) — ob um Geld gespielt wird, Einsatz je Spieler (Stepper wie bei der Kartenzahl, Standard 10 €), Ausschüttungsmodus (Entscheidung #21, `podium-cascade` erst ab 3 Spielern wählbar). Neue Engine-Funktion `moneyPayouts(game)` berechnet nach der letzten Runde den Netto-Gewinn/Verlust je Spieler; neue „💰 Auszahlung"-Karte zeigt das Ergebnis in Schreiber- **und** Zuschauer-Ansicht (grün/rot wie die Punktestand-Zellen). Im manuellen Modus trägt der Schreiber die Beträge direkt in der Karte ein, die Zuschauer-Ansicht zeigt sie read-only bzw. „noch nicht eingetragen". | ✅ fertig |
+| **M19** | **Spieler-Bilanz & All-Time-Statistiken**: neues `src/profile-stats.js` aggregiert Sieg-/Platzierungs- und Rundenstatistiken je Profil über alle Spiele hinweg (siehe eigene Spezifikation oben). Neue „📊 Bilanz"-Karte in der Profil-Detailansicht (Siegquote, Podest, Ø-Platzierung, rote Laterne, Trefferquote, Ansage-/Stich-Index, Ø Punkte/Runde, bestes Ergebnis, längste Serie). Neue Seite `#/stats` („🏆 Bestenliste", verlinkt von Startseite & Profilübersicht): Hall-of-Fame-Kacheln für die jeweiligen Spitzenreiter + eine vollständige, per Chip-Leiste umschaltbare Rangliste über alle Profile. `engine.bidTrickTotals` liefert dafür zusätzlich `fairShareSum` je Spieler. | ✅ fertig |
 
 ### Status-Notiz (M3/M4 verifiziert)
 - Smoke-Test via Chrome-headless + DevTools-Protokoll: Startseite/`listGames` lädt,
