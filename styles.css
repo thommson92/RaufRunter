@@ -147,6 +147,15 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 12px 0 
 
 .muted { color: var(--muted); }
 .center { text-align: center; }
+.section-label {
+  margin: 18px 0 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+h2 + .section-label { margin-top: 12px; }
 .row { display: flex; align-items: center; gap: 10px; }
 .spread { justify-content: space-between; }
 .pill {

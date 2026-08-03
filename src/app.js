@@ -834,7 +834,7 @@ function entryPanel(game) {
     const allTricks = seated.every((p) => round.tricks[p.id] != null);
 
     tricksSection = `
-      <h3 style="margin-top:18px">Gemachte Stiche</h3>
+      <h3 class="section-label">Auswertung</h3>
       ${tRows}
       ${warn}
       <button class="btn-primary" data-action="finish-round" style="width:100%;margin-top:12px"
@@ -848,7 +848,8 @@ function entryPanel(game) {
       <h2 style="margin:0">Runde ${ui.activeRound + 1}/${game.rounds.length}</h2>
       ${
         dealer
-          ? `<p class="dealer-line">${avatarNameHtml(profileOf(dealer), dealer.name)}<span>gibt ${cc} ${
+          ? `<h3 class="section-label">Geber</h3>
+             <p class="dealer-line">${avatarNameHtml(profileOf(dealer), dealer.name)}<span>gibt ${cc} ${
               cc === 1 ? 'Karte' : 'Karten'
             } 🃏${restrict ? ' · sagt zuletzt an' : ''}</span></p>`
           : ''
@@ -870,7 +871,7 @@ function entryPanel(game) {
           }
         </div>
       </div>
-      <h3 style="margin-top:18px">Ansagen</h3>
+      <h3 class="section-label">Ansagen</h3>
       ${bidRows}
       ${tricksSection}
     </div>`;
@@ -1112,7 +1113,7 @@ function currentRoundCard(game) {
       })
       .join('');
     tricksBlock = `
-      <h3 style="margin-top:16px">Gemachte Stiche</h3>
+      <h3 class="section-label">Auswertung</h3>
       ${trickRows}
       <p class="muted" style="margin:8px 0 0">Bisher gemacht: <strong>${trickSum}</strong> von ${cc}</p>`;
   }
@@ -1120,12 +1121,13 @@ function currentRoundCard(game) {
   return `
     <div class="card">
       <h2 style="margin:0">Aktuelle Runde</h2>
+      <h3 class="section-label">Geber</h3>
       <p class="dealer-line">${avatarNameHtml(profileOf(dealer), dealer.name)}<span>gibt ${cc} ${
     cc === 1 ? 'Karte' : 'Karten'
   } 🃏${
     trump ? ` · <span class="trump"><span class="dot dot-${trump}"></span>${trump}</span>` : ''
   }</span></p>
-      <h3 style="margin-top:16px">Ansagen</h3>
+      <h3 class="section-label">Ansagen</h3>
       ${bidRows}
       ${bidSummary}
       ${tricksBlock}
