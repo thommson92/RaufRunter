@@ -645,6 +645,73 @@ test('moneyPayouts: Gleichstand auf Platz 1 ⇒ Pot gesplittet, „Rang 2"-Regel
   assert.equal(byIdRefund.c.net, -6);
 });
 
+test('moneyPayouts: podium-cascade, Gleichstand auf Platz 2 ⇒ Platz-2- UND Platz-3-Auszahlung zusammengelegt und geteilt', () => {
+  // a gewinnt klar, b & c teilen sich Platz 2 (⇒ es gibt keinen Platz 3), d ist Letzter.
+  const game = {
+    players: [
+      { id: 'a', name: 'Anna' },
+      { id: 'b', name: 'Ben' },
+      { id: 'c', name: 'Cara' },
+      { id: 'd', name: 'Dirk' },
+    ],
+    rounds: [
+      {
+        cardCount: 30,
+        done: true,
+        bids: { a: 20, b: 10, c: 10, d: 9 },
+        tricks: { a: 20, b: 10, c: 10, d: 10 }, // d falsch angesagt ⇒ -10+10=0
+      },
+    ],
+    moneyEnabled: true,
+    stake: 10,
+    payoutMode: 'podium-cascade',
+  };
+  const byId = Object.fromEntries(moneyPayouts(game).map((p) => [p.playerId, p]));
+  assert.equal(byId.b.rank, 2);
+  assert.equal(byId.c.rank, 2);
+  // Platz 2 (2×Einsatz=20€) + Platz 3 (1×Einsatz=10€) zusammen 30€, auf beide
+  // geteilt ⇒ 15€ Auszahlung / 5€ Netto-Gewinn pro Person (Einsatz 10€).
+  assert.equal(byId.b.net, 5);
+  assert.equal(byId.c.net, 5);
+  assert.equal(byId.d.net, -10); // Letzter, kein Platz belegt eine Auszahlung für ihn
+  assert.equal(byId.a.net, 0); // Rest: Pot 40€ − 30€ (an b+c) − 0€ (d) − Einsatz
+  const sum = Object.values(byId).reduce((s, p) => s + p.net, 0);
+  assert.equal(sum, 0);
+});
+
+test('moneyPayouts: runner-up-refund, drei teilen sich Platz 2 ⇒ nur EIN Rückerstattungsbetrag wird gedrittelt', () => {
+  // a gewinnt klar, b/c/d teilen sich Platz 2 zu dritt.
+  const game = {
+    players: [
+      { id: 'a', name: 'Anna' },
+      { id: 'b', name: 'Ben' },
+      { id: 'c', name: 'Cara' },
+      { id: 'd', name: 'Dirk' },
+    ],
+    rounds: [
+      {
+        cardCount: 30,
+        done: true,
+        bids: { a: 20, b: 0, c: 0, d: 0 },
+        tricks: { a: 20, b: 10, c: 10, d: 10 }, // b/c/d falsch angesagt ⇒ -10+10=0, alle gleich
+      },
+    ],
+    moneyEnabled: true,
+    stake: 10,
+    payoutMode: 'runner-up-refund',
+  };
+  const byId = Object.fromEntries(moneyPayouts(game).map((p) => [p.playerId, p]));
+  assert.equal(byId.b.rank, 2);
+  assert.equal(byId.c.rank, 2);
+  assert.equal(byId.d.rank, 2);
+  // Nur EIN Einsatz (10€) ist als Rückerstattung für Platz 2 vorgesehen, nicht
+  // dreimal — gedrittelt macht das 3,33€ Auszahlung / −6,67€ Netto pro Person.
+  assert.equal(byId.b.net, -6.67);
+  assert.equal(byId.c.net, -6.67);
+  assert.equal(byId.d.net, -6.67);
+  assert.equal(byId.a.net, 20); // Rest: Pot 40€ − 10€ (Platz-2-Topf) − Einsatz
+});
+
 test('moneyPayouts: manual reicht eingetragene Werte durch, fehlende ⇒ null', () => {
   const game = fourRankGame({
     moneyEnabled: true,

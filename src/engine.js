@@ -200,8 +200,19 @@ const PAYOUT_MULTIPLES = {
  * Preset-Modi (`winner-takes-all`/`runner-up-refund`/`podium-cascade`) zahlen
  * den Rängen aus `PAYOUT_MULTIPLES` ein festes Vielfaches des Einsatzes
  * zurück; alles, was so nicht vergeben wird, geht **gesammelt** an Rang 1
- * (bei Gleichstand gleichmäßig gesplittet). Das behandelt geteilte Ränge
- * ohne Sonderfall: teilen sich z. B. zwei Spieler Rang 1, existiert kein
+ * (bei Gleichstand gleichmäßig gesplittet).
+ *
+ * Geteilte Ränge bei einer Gruppe von k Spielern: die Gruppe belegt fiktiv
+ * die Plätze `rank .. rank+k-1` (geteilter Rang lässt die Folgeplätze aus,
+ * siehe `standings()`/`withSharedRanks` — bei zwei Erstplatzierten gibt es
+ * z. B. keinen Platz 2). Alle für diese Plätze vorgesehenen festen
+ * Auszahlungen werden zusammengelegt und gleichmäßig auf die Gruppe verteilt
+ * — nicht jedem Gruppenmitglied einzeln der volle Betrag. Werden z. B. bei
+ * `podium-cascade` zwei Spieler gemeinsam Zweiter, teilen sie sich Platz-2-
+ * UND Platz-3-Auszahlung (der Dritte fällt ja aus); werden bei
+ * `runner-up-refund` drei Spieler gemeinsam Zweiter, teilen sie sich den
+ * einen dafür vorgesehenen Einsatz-Rückerstattungsbetrag. Das behandelt auch
+ * Rang 1 ohne Sonderfall: teilen sich zwei Spieler Rang 1, existiert kein
  * Rang 2 — die dafür vorgesehene Auszahlung fließt dann einfach nicht ab und
  * bleibt Teil des Rests für Rang 1.
  * `manual` reicht `game.manualPayouts[playerId]` unverändert als Netto-Betrag
@@ -241,8 +252,12 @@ export function moneyPayouts(game) {
   for (const [rankStr, players] of Object.entries(byRank)) {
     const rank = Number(rankStr);
     if (rank === 1) continue; // bekommt am Ende den Rest
-    const grossEach = stake * (multiples[rank] ?? 0);
-    remainder -= grossEach * players.length;
+    let groupTotal = 0;
+    for (let slot = rank; slot < rank + players.length; slot++) {
+      groupTotal += stake * (multiples[slot] ?? 0);
+    }
+    remainder -= groupTotal;
+    const grossEach = groupTotal / players.length;
     for (const p of players) {
       results.push({ playerId: p.playerId, name: p.name, rank, net: round2(grossEach - stake) });
     }

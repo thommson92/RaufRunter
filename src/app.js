@@ -393,7 +393,13 @@ function moneyCard(fields, playerCount) {
         fields.moneyEnabled
           ? `
         <label>Einsatz pro Spieler (€, fürs ganze Spiel)</label>
-        <input data-field="stake" type="number" inputmode="decimal" min="0" step="0.5" value="${fields.stake}" />
+        <div class="stepper">
+          <button type="button" class="stepper-btn" data-action="stake-dec" aria-label="Einsatz verringern" ${
+            fields.stake <= 0 ? 'disabled' : ''
+          }>−</button>
+          <input class="stepper-value" data-field="stake" type="number" inputmode="decimal" min="0" step="1" value="${fields.stake}" />
+          <button type="button" class="stepper-btn" data-action="stake-inc" aria-label="Einsatz erhöhen">+</button>
+        </div>
         <label>Ausschüttung</label>
         <select data-field="payoutMode">${modeOptions}</select>
         <small class="muted">${esc(PAYOUT_MODE_HINTS[fields.payoutMode] || '')}</small>`
@@ -414,7 +420,7 @@ function renderNew() {
       upOnly: false,
       rollDealer: false,
       moneyEnabled: false,
-      stake: 5,
+      stake: 10,
       payoutMode: 'winner-takes-all',
     };
   }
@@ -1315,7 +1321,7 @@ function renderScorer() {
     ${moneyCard(
       {
         moneyEnabled: game.moneyEnabled === true,
-        stake: game.stake || 0,
+        stake: game.stake || 10,
         payoutMode: game.payoutMode || 'winner-takes-all',
       },
       game.players.length,
@@ -1860,6 +1866,22 @@ async function onClick(e) {
       );
       renderNew();
       break;
+
+    case 'stake-dec':
+    case 'stake-inc': {
+      const delta = action === 'stake-inc' ? 1 : -1;
+      // Gleiche Karte in zwei Routen (siehe moneyCard): im laufenden Spiel
+      // direkt am geladenen Dokument ändern, im Entwurf am Formular-State.
+      if (currentRoute().view === 'game' && current.game) {
+        current.game.stake = Math.max(0, (current.game.stake || 0) + delta);
+        saveCurrent();
+      } else {
+        readDraftFromInputs();
+        ui.draft.stake = Math.max(0, ui.draft.stake + delta);
+        renderNew();
+      }
+      break;
+    }
 
     case 'add-player':
       readDraftFromInputs();
