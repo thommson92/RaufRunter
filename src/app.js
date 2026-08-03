@@ -378,15 +378,9 @@ function moneyCard(fields, playerCount) {
   const modeOptions = Object.entries(PAYOUT_MODE_LABELS)
     .map(([value, label]) => {
       const disabled = value === 'podium-cascade' && playerCount < 3;
-      const isSelected = fields.payoutMode === value;
-      return `
-        <label class="payout-option ${isSelected ? 'selected' : ''} ${disabled ? 'disabled' : ''}">
-          <input type="radio" name="payoutMode" value="${value}" data-field="payoutMode" ${isSelected ? 'checked' : ''} ${disabled ? 'disabled' : ''} />
-          <div class="payout-option-content">
-            <strong>${esc(label)}${disabled ? ' (ab 3 Spielern)' : ''}</strong>
-            <small class="muted">${esc(PAYOUT_MODE_HINTS[value] || '')}</small>
-          </div>
-        </label>`;
+      return `<option value="${value}" ${fields.payoutMode === value ? 'selected' : ''} ${
+        disabled ? 'disabled' : ''
+      }>${esc(label)}${disabled ? ' (ab 3 Spielern)' : ''}</option>`;
     })
     .join('');
   return `
@@ -408,9 +402,8 @@ function moneyCard(fields, playerCount) {
           <button type="button" class="stepper-btn" data-action="stake-inc" aria-label="Einsatz erhöhen">+</button>
         </div>
         <label>Ausschüttung</label>
-        <div class="payout-options">
-          ${modeOptions}
-        </div>`
+        <select class="payout-select" data-field="payoutMode">${modeOptions}</select>
+        <small class="muted">${esc(PAYOUT_MODE_HINTS[fields.payoutMode] || '')}</small>`
           : ''
       }
     </div>`;

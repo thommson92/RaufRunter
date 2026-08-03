@@ -553,60 +553,39 @@ tbody tr:nth-child(odd) td.sticky-right { background: #243044; }
 .bar-fill.bar-trick { background: var(--series-2); }
 .bar-value { font-size: 0.75rem; font-weight: 700; color: var(--bg); }
 
-/* ---- Geldverteilung: Radio-Button-ähnliche Ausschüttungs-Optionen ---- */
-.payout-options {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.payout-option {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
+/* ---- Geldverteilung: Select-Dropdown Styling ---- */
+.payout-select {
+  width: 100%;
   padding: 12px;
+  margin: 8px 0;
   background: var(--surface-2);
-  border: 2px solid transparent;
+  color: var(--text);
+  border: 1px solid var(--line);
   border-radius: 10px;
+  font-size: 1rem;
   cursor: pointer;
-  transition: all 0.2s ease;
+  font-family: inherit;
 }
 
-.payout-option:hover:not(.disabled) {
-  background: rgba(56, 189, 248, 0.1);
+.payout-select:hover {
   border-color: var(--primary);
+  background: rgba(56, 189, 248, 0.05);
 }
 
-.payout-option input[type="radio"] {
-  margin-top: 2px;
-  cursor: pointer;
-  flex: 0 0 auto;
-}
-
-.payout-option.selected {
-  background: rgba(56, 189, 248, 0.15);
+.payout-select:focus {
+  outline: none;
   border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.1);
 }
 
-.payout-option.disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.payout-option-content {
+/* ---- Feedback/Spenden Buttons: Vertikal stapeln ---- */
+.btn-row {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  flex: 1;
+  gap: 10px;
 }
 
-.payout-option-content strong {
-  display: block;
-  font-weight: 600;
-}
-
-.payout-option-content small {
-  font-size: 0.8rem;
-  line-height: 1.4;
+.btn-row a,
+.btn-row button {
+  width: 100%;
 }
