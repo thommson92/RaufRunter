@@ -207,9 +207,28 @@ const statsGame = {
 
 test('bidTrickTotals: Summe Ansagen & Stiche je Spieler über fertige Runden', () => {
   const t = bidTrickTotals(statsGame);
-  assert.deepEqual(t.a, { bidSum: 2, trickSum: 1, roundsPlayed: 2 });
-  assert.deepEqual(t.b, { bidSum: 1, trickSum: 1, roundsPlayed: 2 });
-  assert.deepEqual(t.c, { bidSum: 0, trickSum: 1, roundsPlayed: 2 });
+  // fairShareSum: Runde 1 (1 Karte) + Runde 2 (2 Karten) = 3 Stiche auf 3 Spieler ⇒ je 1.
+  assert.deepEqual(t.a, { bidSum: 2, trickSum: 1, roundsPlayed: 2, fairShareSum: 1 });
+  assert.deepEqual(t.b, { bidSum: 1, trickSum: 1, roundsPlayed: 2, fairShareSum: 1 });
+  assert.deepEqual(t.c, { bidSum: 0, trickSum: 1, roundsPlayed: 2, fairShareSum: 1 });
+});
+
+test('bidTrickTotals: fairShareSum gewichtet Runden nach Kartenzahl UND Spielerzahl', () => {
+  const game = {
+    players: [
+      { id: 'a', name: 'Anna' },
+      { id: 'b', name: 'Ben' },
+      { id: 'c', name: 'Cara' },
+      { id: 'd', name: 'Deniz' },
+    ],
+    rounds: [
+      // 4 Karten auf 4 Spieler ⇒ fairer Anteil 1 pro Spieler.
+      { cardCount: 4, done: true, bids: { a: 4, b: 0, c: 0, d: 0 }, tricks: { a: 4, b: 0, c: 0, d: 0 } },
+    ],
+  };
+  const t = bidTrickTotals(game);
+  assert.equal(t.a.fairShareSum, 1);
+  assert.equal(t.b.fairShareSum, 1);
 });
 
 test('accuracyStats: Trefferquote = richtige Ansagen / gespielte Runden', () => {
